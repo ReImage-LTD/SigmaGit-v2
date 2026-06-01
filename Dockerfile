@@ -34,7 +34,7 @@ COPY apps/api ./apps/api
 COPY apps/discord-bot ./apps/discord-bot
 
 WORKDIR /app/apps/api
-RUN bun build src/index.ts --outdir dist --target bun --minify
+RUN bun build src/index.ts --outdir dist --target bun --minify --packages=external
 
 WORKDIR /app/apps/web
 RUN bun run build
