@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { config } from "../config";
 import health from "./health";
+import install from "./install";
 import auth from "./auth";
 import nostrAuth from "./nostr-auth";
 import users from "./users";
@@ -36,6 +37,7 @@ import packages from "./packages";
 
 export function mountRoutes(app: Hono) {
   app.route("/", health);
+  app.route("/", install);
   app.route("/", nostrAuth);
   app.route("/", auth);
   app.route("/", users);

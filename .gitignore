@@ -43,6 +43,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+.codegraph
 .cursor
 # turbo
 .turbo

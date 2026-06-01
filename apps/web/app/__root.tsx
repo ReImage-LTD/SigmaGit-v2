@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { HeadContent, Link, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
+import { HeadContent, Link, Outlet, Scripts, createRootRoute, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Databuddy } from "@databuddy/sdk/react";
 import { GitBranch, Home } from "lucide-react";
 import { ThemeProvider } from "tanstack-theme-kit";
@@ -60,18 +60,25 @@ function LazyDatabuddy({ clientId }: { clientId: string }) {
 
 function MaintenanceGate({ children }: { children: ReactNode }) {
   const { data: session } = useSession();
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    
+
     // Defer status check to not block initial render
     const timer = setTimeout(() => {
       fetch(`${getApiUrl()}/api/status`)
         .then((res) => res.json())
         .then((data) => {
-          if (!cancelled) setMaintenanceMode(data.maintenanceMode === true);
+          if (cancelled) return;
+          setMaintenanceMode(data.maintenanceMode === true);
+          // First-run install: route everyone to /setup until an account exists.
+          if (data.needsSetup === true && pathname !== "/setup") {
+            navigate({ to: "/setup" });
+          }
         })
         .catch(() => {
           if (!cancelled) setMaintenanceMode(false);
@@ -80,12 +87,12 @@ function MaintenanceGate({ children }: { children: ReactNode }) {
           if (!cancelled) setChecked(true);
         });
     }, 1500);
-    
+
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, []);
+  }, [navigate, pathname]);
 
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin";
 

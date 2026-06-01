@@ -1,4 +1,5 @@
 import { db, users, sessions, accounts, verifications, apiKeys, passkeys } from '@sigmagit/db';
+import { sql } from 'drizzle-orm';
 import { getApiUrl, getWebUrl, getTrustedOrigins, config } from './config';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sendEmail, sendPasswordResetEmail } from './email';
@@ -421,7 +422,14 @@ export const initAuth = async () => {
                 });
               }
 
-              if (config.emailDomainRestriction.enabled && !isAllowedEmailDomain(user.email)) {
+              // The very first account (first-run install/admin) is exempt from the
+              // allowed-domain restriction so self-hosters can use any email.
+              const [{ count: existingUsers }] = await db
+                .select({ count: sql<number>`COUNT(*)::int` })
+                .from(users);
+              const isFirstUser = Number(existingUsers) === 0;
+
+              if (!isFirstUser && config.emailDomainRestriction.enabled && !isAllowedEmailDomain(user.email)) {
                 throw new APIError('BAD_REQUEST', {
                   message:
                     'Please use an email from a supported provider (Gmail, Hotmail, Outlook, Yahoo, or iCloud).',

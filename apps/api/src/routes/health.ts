@@ -17,11 +17,18 @@ app.get("/api/health", async (c) => {
   return c.json({ status: "ok", version: "1.0.0" });
 });
 
-// Public status (maintenance mode) - no auth, so app can gate non-admin users
+// Public status (maintenance mode + first-run setup) - no auth, so app can gate users
 app.get("/api/status", async (c) => {
+  // needsSetup flips exactly once (when the first user is created), so it is
+  // computed fresh on every call rather than cached. It's a cheap indexed count.
+  const [userCountRow] = await db
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(users);
+  const needsSetup = Number(userCountRow?.count ?? 0) === 0;
+
   const cached = await getCached<{ maintenanceMode: boolean }>(appCache.systemSettingKey("maintenance_mode"));
   if (cached) {
-    return c.json(cached);
+    return c.json({ ...cached, needsSetup });
   }
 
   const row = await db
@@ -32,7 +39,7 @@ app.get("/api/status", async (c) => {
   const maintenanceMode = row[0]?.value === true;
   const payload = { maintenanceMode: !!maintenanceMode };
   await setCache(appCache.systemSettingKey("maintenance_mode"), payload, CACHE_TTL.systemSetting);
-  return c.json(payload);
+  return c.json({ ...payload, needsSetup });
 });
 
 // Public platform stats (no auth) - mounted on health so it is never behind admin/auth middleware

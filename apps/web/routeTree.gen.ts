@@ -28,6 +28,7 @@ import { Route as MainAdminRouteImport } from './app/_main/admin'
 import { Route as MainAboutRouteImport } from './app/_main/about'
 import { Route as MainUsernameRouteImport } from './app/_main/$username'
 import { Route as AuthVerifyEmailRouteImport } from './app/_auth/verify-email'
+import { Route as AuthSetupRouteImport } from './app/_auth/setup'
 import { Route as AuthResetPasswordRouteImport } from './app/_auth/reset-password'
 import { Route as AuthRegisterRouteImport } from './app/_auth/register'
 import { Route as AuthLoginRouteImport } from './app/_auth/login'
@@ -175,6 +176,11 @@ const MainUsernameRoute = MainUsernameRouteImport.update({
 const AuthVerifyEmailRoute = AuthVerifyEmailRouteImport.update({
   id: '/verify-email',
   path: '/verify-email',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthSetupRoute = AuthSetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
   getParentRoute: () => AuthRoute,
 } as any)
 const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
@@ -488,6 +494,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
   '/reset-password': typeof AuthResetPasswordRoute
+  '/setup': typeof AuthSetupRoute
   '/verify-email': typeof AuthVerifyEmailRoute
   '/$username': typeof MainUsernameRouteWithChildren
   '/about': typeof MainAboutRoute
@@ -562,6 +569,7 @@ export interface FileRoutesByTo {
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
   '/reset-password': typeof AuthResetPasswordRoute
+  '/setup': typeof AuthSetupRoute
   '/verify-email': typeof AuthVerifyEmailRoute
   '/about': typeof MainAboutRoute
   '/careers': typeof MainCareersRoute
@@ -634,6 +642,7 @@ export interface FileRoutesById {
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/register': typeof AuthRegisterRoute
   '/_auth/reset-password': typeof AuthResetPasswordRoute
+  '/_auth/setup': typeof AuthSetupRoute
   '/_auth/verify-email': typeof AuthVerifyEmailRoute
   '/_main/$username': typeof MainUsernameRouteWithChildren
   '/_main/about': typeof MainAboutRoute
@@ -711,6 +720,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/reset-password'
+    | '/setup'
     | '/verify-email'
     | '/$username'
     | '/about'
@@ -785,6 +795,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/reset-password'
+    | '/setup'
     | '/verify-email'
     | '/about'
     | '/careers'
@@ -856,6 +867,7 @@ export interface FileRouteTypes {
     | '/_auth/login'
     | '/_auth/register'
     | '/_auth/reset-password'
+    | '/_auth/setup'
     | '/_auth/verify-email'
     | '/_main/$username'
     | '/_main/about'
@@ -1064,6 +1076,13 @@ declare module '@tanstack/react-router' {
       path: '/verify-email'
       fullPath: '/verify-email'
       preLoaderRoute: typeof AuthVerifyEmailRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/setup': {
+      id: '/_auth/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof AuthSetupRouteImport
       parentRoute: typeof AuthRoute
     }
     '/_auth/reset-password': {
@@ -1459,6 +1478,7 @@ interface AuthRouteChildren {
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
+  AuthSetupRoute: typeof AuthSetupRoute
   AuthVerifyEmailRoute: typeof AuthVerifyEmailRoute
 }
 
@@ -1467,6 +1487,7 @@ const AuthRouteChildren: AuthRouteChildren = {
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   AuthResetPasswordRoute: AuthResetPasswordRoute,
+  AuthSetupRoute: AuthSetupRoute,
   AuthVerifyEmailRoute: AuthVerifyEmailRoute,
 }
 
