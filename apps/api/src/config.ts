@@ -1,13 +1,6 @@
 import { normalizeUrl } from '@sigmagit/lib';
 
-const baseOrigins = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://localhost:8081',
-  'http://10.0.2.2:3001',
-  'exp://localhost:8081',
-  'exp://192.168.*.*:8081',
-];
+const baseOrigins = ['http://localhost:3000', 'http://localhost:3001'];
 
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -50,7 +43,6 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || process.env.RAILWAY_ENVIRONMENT_NAME || 'development',
   apiUrl: process.env.API_URL || process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost:3001',
   webUrl: process.env.WEB_URL || 'localhost:3000',
-  expoPublicApiUrl: process.env.EXPO_PUBLIC_API_URL!,
   rateLimit: {
     general: envInt('RATE_LIMIT_GENERAL', 500),
     auth: envInt('RATE_LIMIT_AUTH', 5),
@@ -108,7 +100,7 @@ export const getWebUrl = (): string => {
 };
 
 export const getTrustedOrigins = (): string[] => {
-  const origins: string[] = [...baseOrigins, 'exp://*'];
+  const origins: string[] = [...baseOrigins];
 
   if (config.apiUrl) {
     origins.push(normalizeUrl(config.apiUrl));
@@ -116,10 +108,6 @@ export const getTrustedOrigins = (): string[] => {
 
   if (config.webUrl) {
     origins.push(normalizeUrl(config.webUrl));
-  }
-
-  if (config.expoPublicApiUrl) {
-    origins.push(normalizeUrl(config.expoPublicApiUrl));
   }
 
   return origins;
@@ -134,10 +122,6 @@ export const getAllowedOrigins = (): string[] => {
 
   if (config.webUrl) {
     allowedOrigins.push(normalizeUrl(config.webUrl));
-  }
-
-  if (config.expoPublicApiUrl) {
-    allowedOrigins.push(normalizeUrl(config.expoPublicApiUrl));
   }
 
   return allowedOrigins;

@@ -165,18 +165,6 @@ export type UserProfile = {
   updatedAt: string;
 };
 
-export type SshKey = {
-  id: string;
-  title: string | null;
-  algorithm: string;
-  fingerprintSha256: string;
-  publicKeyPreview: string;
-  comment: string | null;
-  createdAt: string;
-  lastUsedAt: string | null;
-  revokedAt: string | null;
-};
-
 export type PublicUser = {
   id: string;
   name: string;
@@ -687,7 +675,6 @@ export type ApiClient = {
   settings: {
     getCurrentUser: () => Promise<{ user: UserProfile }>;
     getWordWrap: () => Promise<{ wordWrap: boolean }>;
-    getSshKeys: () => Promise<{ sshKeys: SshKey[] }>;
     updateProfile: (data: {
       name?: string;
       username?: string;
@@ -704,8 +691,6 @@ export type ApiClient = {
     updateSocialLinks?: (data: { github?: string; twitter?: string; linkedin?: string; custom?: string[] }) => Promise<{ success: boolean }>;
     updateEmail: (data: { email: string }) => Promise<{ success: boolean } | UserProfile>;
     updatePassword?: (data: { currentPassword: string; newPassword: string }) => Promise<{ success: boolean }>;
-    createSshKey: (data: { title?: string; publicKey: string }) => Promise<{ sshKey: SshKey }>;
-    deleteSshKey: (keyId: string) => Promise<{ success: boolean }>;
     updateAvatar: (file: File) => Promise<{ success: boolean; avatarUrl: string }>;
     deleteAvatar: () => Promise<{ success: boolean; avatarUrl: string | null }>;
     deleteAccount: () => Promise<{ success: boolean }>;

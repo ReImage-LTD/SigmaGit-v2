@@ -41,7 +41,6 @@ export default defineConfig({
         },
       ],
       '/development/': [{ text: 'Development', items: [{ text: 'Overview', link: '/development/' }] }],
-      '/mobile/': [{ text: 'Mobile', items: [{ text: 'Overview', link: '/mobile/' }] }],
       '/discord-bot/': [{ text: 'Discord Bot', items: [{ text: 'Overview', link: '/discord-bot/' }] }],
       '/security/': [{ text: 'Security', items: [{ text: 'Overview', link: '/security/' }] }],
       '/features/': [

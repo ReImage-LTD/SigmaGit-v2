@@ -19,7 +19,7 @@ COPY packages/hooks ./packages/hooks
 COPY apps/api ./apps/api
 
 WORKDIR /app/apps/api
-RUN bun build src/index.ts --outdir dist --target bun --minify
+RUN bun build src/index.ts --outdir dist --target bun --minify --packages=external
 
 FROM oven/bun:1.3.5-alpine AS runner
 

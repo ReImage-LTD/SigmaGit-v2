@@ -3,9 +3,9 @@ import { getApiUrl, getWebUrl, getTrustedOrigins, config } from './config';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sendEmail, sendPasswordResetEmail } from './email';
 import { passkey } from '@better-auth/passkey';
-import { apiKey, haveIBeenPwned } from 'better-auth/plugins';
+import { apiKey } from '@better-auth/api-key';
+import { haveIBeenPwned } from 'better-auth/plugins';
 import { APIError } from 'better-auth/api';
-import { expo } from '@better-auth/expo';
 import { betterAuth } from 'better-auth';
 import { getRedisSession } from './redis';
 
@@ -374,7 +374,6 @@ export const initAuth = async () => {
             timeWindow: '1m',
           },
         }),
-        expo(),
         passkey({
           rpID: new URL(getWebUrl()).hostname,
           rpName: 'sigmagit',

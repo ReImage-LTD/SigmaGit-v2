@@ -9,7 +9,7 @@ body:
       value: |
         Thanks for taking the time to report a bug.
 
-        Please include enough detail for us to reproduce the issue. If this affects a specific area of Sigmagit, mention it clearly (web, API, mobile, docs, Discord bot, runner, or database).
+        Please include enough detail for us to reproduce the issue. If this affects a specific area of Sigmagit, mention it clearly (web, API, docs, Discord bot, runner, or database).
   - type: dropdown
     id: area
     attributes:

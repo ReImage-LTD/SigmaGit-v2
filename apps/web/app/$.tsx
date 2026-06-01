@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getApiUrl } from "@/lib/utils";
 
-export const Route = createFileRoute("/$" as any)({
+export const Route = createFileRoute("/$")({
   server: {
     handlers: {
       GET: async ({ request }) => {

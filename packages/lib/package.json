@@ -16,11 +16,11 @@
   },
   "dependencies": {
     "clsx": "^2.1.1",
-    "date-fns": "^4.1.0",
-    "tailwind-merge": "^3.4.0"
+    "date-fns": "^4.4.0",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@sigmagit/hooks": "workspace:*",
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   }
 }

@@ -9,7 +9,6 @@ This file contains guidelines for agentic coding assistants working in this repo
 ### Common Commands
 - `bun install` - Install dependencies
 - `bun run dev:web` - Start web app + API server (ports 3000, 3001)
-- `bun run dev:mobile` - Start mobile app + API server (ports 8081, 3001)
 - `bun run dev:discord` - Start Discord bot only
 - `bun run build` - Build all applications (turbo)
 - `bun run lint` - Lint all packages
@@ -32,7 +31,6 @@ This file contains guidelines for agentic coding assistants working in this repo
 - `cd apps/web && bun run dev` - Start web dev server
 - `cd apps/api && bun run dev` - Start API server
 - `cd apps/api && bun run build` - Build API for production
-- `cd apps/mobile && bun run dev` - Start Expo mobile app
 - `cd apps/discord-bot && bun run register` - Register Discord slash commands
 
 ## Code Style Guidelines

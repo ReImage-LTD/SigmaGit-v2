@@ -20,7 +20,6 @@ Welcome to the Sigmagit docs site.
 
 ## Platform Docs
 
-- [Mobile](/mobile/)
 - [Discord Bot](/discord-bot/)
 
 ## Local Development

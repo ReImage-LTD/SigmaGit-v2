@@ -10,7 +10,6 @@ System architecture and design decisions for Sigmagit.
 sigmagitv2/
 ├── apps/
 │   ├── web/              # TanStack Start web application
-│   ├── mobile/           # Expo React Native mobile app
 │   ├── api/               # Hono API server (Bun)
 │   └── discord-bot/      # Discord integration bot
 ├── packages/
@@ -26,7 +25,6 @@ sigmagitv2/
 - **Language**: TypeScript
 - **Frontend**: React 19, TanStack Start, TailwindCSS
 - **Backend**: Hono, Bun
-- **Mobile**: React Native, Expo
 - **Database**: PostgreSQL, Drizzle ORM
 - **Git**: isomorphic-git
 - **Storage**: S3-compatible or local filesystem
@@ -82,7 +80,7 @@ sigmagitv2/
 ### User Authentication Flow
 
 1. **Login**
-   - User enters credentials in web/mobile app
+   - User enters credentials in the web app
    - Credentials sent to `/auth/sign-in`
    - better-auth authenticates
    - Session created and stored in database
@@ -351,7 +349,7 @@ sigmagit:discord:{discordId}:notifications
 - Stateless API server design
 - Shared storage (S3 or database)
 - Shared cache (Redis)
-- Stateless web/mobile apps
+- Stateless web app
 
 ### Vertical Scaling
 
@@ -363,7 +361,7 @@ sigmagit:discord:{discordId}:notifications
 
 - Round-robin for API requests
 - Session affinity for websocket connections
-- Sticky sessions for web/mobile
+- Sticky sessions for web
 
 ## 🌐 Monitoring & Observability
 
@@ -421,14 +419,6 @@ sigmagit:discord:{discordId}:notifications
 # Environment-specific configuration
 - CDN integration (optional)
 # Rate limiting
-```
-
-### Mobile App
-```bash
-# App Store deployment
-```bash
-expo submit:ios
-expo submit:android
 ```
 
 ### Database
@@ -551,7 +541,7 @@ DISCORD_WEBHOOK_URL=
 ### Application Error Boundaries
 
 - React error boundaries (web)
-- Global error handler (mobile)
+- Global error handler (web)
 - Error reporting to monitoring service
 
 ### Error Classification

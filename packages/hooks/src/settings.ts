@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import { useApi } from "./context";
-import type { SshKey, UserPreferences, UserProfile } from "./types";
+import type { UserPreferences, UserProfile } from "./types";
 
 export function useCurrentUser(options?: UseQueryOptions<{ user: UserProfile }, Error>) {
   const api = useApi();
@@ -17,15 +17,6 @@ export function useWordWrapPreference(options?: Omit<UseQueryOptions<{ wordWrap:
     ...options,
     queryKey: ["settings", "wordWrap"],
     queryFn: () => api.settings.getWordWrap(),
-  });
-}
-
-export function useSshKeys(options?: Omit<UseQueryOptions<{ sshKeys: SshKey[] }, Error>, "queryKey" | "queryFn">) {
-  const api = useApi();
-  return useQuery({
-    ...options,
-    queryKey: ["settings", "sshKeys"],
-    queryFn: () => api.settings.getSshKeys(),
   });
 }
 
@@ -144,24 +135,3 @@ export function useDeleteAccount() {
   });
 }
 
-export function useCreateSshKey() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (data: { title?: string; publicKey: string }) => api.settings.createSshKey(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["settings", "sshKeys"] });
-    },
-  });
-}
-
-export function useDeleteSshKey() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (keyId: string) => api.settings.deleteSshKey(keyId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["settings", "sshKeys"] });
-    },
-  });
-}

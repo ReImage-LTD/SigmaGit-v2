@@ -49,7 +49,6 @@ import type {
   Notification,
   SearchResult,
   SearchResultType,
-  SshKey,
   Workflow,
   WorkflowRun,
   WorkflowJob,
@@ -350,7 +349,6 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     settings: {
       getCurrentUser: () => apiFetch<{ user: UserProfile }>("/api/settings"),
       getWordWrap: () => apiFetch<{ wordWrap: boolean }>("/api/settings/word-wrap"),
-      getSshKeys: () => apiFetch<{ sshKeys: SshKey[] }>("/api/settings/ssh-keys"),
 
       updateProfile: (data: {
         name?: string;
@@ -396,17 +394,6 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
         apiFetch<{ success: boolean }>("/api/settings/password", {
           method: "PATCH",
           body: JSON.stringify(data),
-        }),
-
-      createSshKey: (data: { title?: string; publicKey: string }) =>
-        apiFetch<{ sshKey: SshKey }>("/api/settings/ssh-keys", {
-          method: "POST",
-          body: JSON.stringify(data),
-        }),
-
-      deleteSshKey: (keyId: string) =>
-        apiFetch<{ success: boolean }>(`/api/settings/ssh-keys/${keyId}`, {
-          method: "DELETE",
         }),
 
       updateAvatar: (file: File) => {

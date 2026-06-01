@@ -1367,35 +1367,9 @@ export const passkeys = pgTable(
   (table) => [index("passkey_userId_idx").on(table.userId), index("passkey_credentialID_idx").on(table.credentialID)]
 );
 
-export const userSshKeys = pgTable(
-  "user_ssh_keys",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    title: text("title"),
-    publicKey: text("public_key").notNull(),
-    algorithm: text("algorithm").notNull(),
-    fingerprintSha256: text("fingerprint_sha256").notNull().unique(),
-    lastUsedAt: timestamp("last_used_at"),
-    revokedAt: timestamp("revoked_at"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
-  },
-  (table) => [index("user_ssh_keys_user_id_idx").on(table.userId), index("user_ssh_keys_revoked_at_idx").on(table.revokedAt)]
-);
-
 export const passkeyRelations = relations(passkeys, ({ one }) => ({
   user: one(users, {
     fields: [passkeys.userId],
-    references: [users.id],
-  }),
-}));
-
-export const userSshKeyRelations = relations(userSshKeys, ({ one }) => ({
-  user: one(users, {
-    fields: [userSshKeys.userId],
     references: [users.id],
   }),
 }));
@@ -1405,7 +1379,6 @@ export const userRelations = relations(users, ({ many }) => ({
   accounts: many(accounts),
   apikeys: many(apiKeys),
   passkeys: many(passkeys),
-  sshKeys: many(userSshKeys),
   auditLogs: many(auditLogs),
 }));
 

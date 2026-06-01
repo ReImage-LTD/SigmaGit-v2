@@ -35,9 +35,6 @@ bun run db:push
 # Start web app + API server
 bun run dev:web
 
-# Start mobile app + API server (optional)
-bun run dev:mobile
-
 # Start Discord bot only (optional)
 bun run dev:discord
 ```
@@ -49,7 +46,6 @@ sigmagitv2/
 ├── apps/
 │   ├── api/              # Hono API server (Bun)
 │   ├── web/              # TanStack Start web application
-│   ├── mobile/           # Expo React Native mobile app
 │   ├── docs-vitepress/   # VitePress documentation site
 │   ├── discord-bot/      # Discord integration bot
 │   └── runner/           # Go-based CI runner agent
@@ -68,7 +64,6 @@ sigmagitv2/
 - [Quick Start](/README.md) - This file
 - [API Documentation](apps/docs-vitepress/docs/api/index.md) - API endpoints and usage
 - [Web App](apps/docs-vitepress/docs/web/index.md) - Web app development
-- [Mobile App](apps/docs-vitepress/docs/mobile/index.md) - Mobile app development
 - [Discord Bot](apps/docs-vitepress/docs/discord-bot/index.md) - Discord integration
 - [Architecture](apps/docs-vitepress/docs/architecture/index.md) - System architecture
 - [Development](apps/docs-vitepress/docs/development/index.md) - Development workflow
@@ -103,7 +98,6 @@ Images are stored in the same S3 or local storage backend as git objects, under 
 - **Language**: TypeScript
 - **Frontend**: React 19, TanStack Start, TailwindCSS
 - **Backend**: Hono, Bun
-- **Mobile**: React Native, Expo
 - **Database**: PostgreSQL, Drizzle ORM
 - **Caching**: Redis (optional)
 - **Storage**: S3-compatible or local filesystem
@@ -143,12 +137,6 @@ Modern React-based web application with file-based routing.
 
 - Base URL: `http://localhost:3000` (configurable)
 - Documentation: [Web App](apps/docs-vitepress/docs/web/index.md)
-
-## 📱 Mobile App
-
-React Native mobile application built with Expo.
-
-- Documentation: [Mobile App](apps/docs-vitepress/docs/mobile/index.md)
 
 ## 🤖 Discord Bot
 

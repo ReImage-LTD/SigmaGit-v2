@@ -39,9 +39,6 @@ This guide covers how to set up your development environment and contribute to S
    ```bash
    # Start web app + API server (ports 3000, 3001)
    bun run dev:web
-
-   # Or start mobile app + API server (ports 8081, 3001)
-   bun run dev:mobile
    ```
 
 ## Development Workflow
@@ -108,7 +105,6 @@ bun run db:studio
 
 - `bun install` - Install all dependencies
 - `bun run dev:web` - Start web app + API
-- `bun run dev:mobile` - Start mobile app + API
 - `bun run build` - Build all apps
 - `bun run lint` - Lint all packages
 - `bun run db:push` - Push schema to database
@@ -165,7 +161,6 @@ bunx prettier --write .
 sigmagit/
 ├── apps/
 │   ├── web/           # TanStack Start web application
-│   ├── mobile/        # Expo React Native app
 │   ├── api/           # Hono API server
 │   └── discord-bot/   # Discord.js bot
 ├── packages/
@@ -190,7 +185,7 @@ sigmagit/
 
 ### Port Already in Use
 
-If ports 3000, 3001, or 8081 are already in use:
+If ports 3000 or 3001 are already in use:
 - Kill the process: `lsof -ti:3000 | xargs kill`
 - Or change ports in environment variables
 

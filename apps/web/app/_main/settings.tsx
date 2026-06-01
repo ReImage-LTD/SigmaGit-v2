@@ -1,8 +1,5 @@
 import {
-  useCreateSshKey,
   useCurrentUser,
-  useDeleteSshKey,
-  useSshKeys,
   useUpdatePreferences,
   useUpdateProfile,
   useUpdateWordWrapPreference,
@@ -56,17 +53,6 @@ type Passkey = {
   deviceType: string;
   createdAt: string;
   backedUp: boolean;
-};
-
-type SshKey = {
-  id: string;
-  title: string | null;
-  algorithm: string;
-  fingerprintSha256: string;
-  publicKeyPreview: string;
-  comment: string | null;
-  createdAt: string;
-  lastUsedAt: string | null;
 };
 
 function ProfileTab() {
@@ -557,21 +543,13 @@ function TokensTab() {
   const { data: apiKeys, isLoading: keysLoading, refetch: refetchKeys } = useApiKeys();
   const { mutate: createKey, isPending: isCreating } = useCreateApiKey();
   const { mutate: deleteKey, isPending: isDeleting } = useDeleteApiKey();
-  const { data: sshKeysData, isLoading: sshKeysLoading, refetch: refetchSshKeys } = useSshKeys();
-  const { mutate: createSshKey, isPending: isCreatingSshKey } = useCreateSshKey();
-  const { mutate: deleteSshKey, isPending: isDeletingSshKey } = useDeleteSshKey();
-
   const [newKeyName, setNewKeyName] = useState("");
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
-  const [isCreateSshOpen, setIsCreateSshOpen] = useState(false);
-  const [newSshKeyTitle, setNewSshKeyTitle] = useState("");
-  const [newSshPublicKey, setNewSshPublicKey] = useState("");
-  const [deleteSshKeyId, setDeleteSshKeyId] = useState<string | null>(null);
 
-  if (userLoading || keysLoading || sshKeysLoading) {
+  if (userLoading || keysLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="size-8 animate-spin text-muted-foreground" />
@@ -630,172 +608,10 @@ function TokensTab() {
     setNewKeyName("");
   }
 
-  function handleCreateSshKey() {
-    const publicKey = newSshPublicKey.trim();
-    if (!publicKey) {
-      toast.error("Paste a valid SSH public key");
-      return;
-    }
-
-    createSshKey(
-      {
-        title: newSshKeyTitle.trim() || undefined,
-        publicKey,
-      },
-      {
-        onSuccess: () => {
-          setIsCreateSshOpen(false);
-          setNewSshKeyTitle("");
-          setNewSshPublicKey("");
-          refetchSshKeys();
-          toast.success("SSH key added successfully");
-        },
-        onError: (err) => {
-          const message = err instanceof Error ? err.message : "Failed to add SSH key";
-          toast.error(message);
-        },
-      }
-    );
-  }
-
-  function handleDeleteSshKey(keyId: string) {
-    deleteSshKey(keyId, {
-      onSuccess: () => {
-        setDeleteSshKeyId(null);
-        refetchSshKeys();
-        toast.success("SSH key removed");
-      },
-      onError: (err) => {
-        const message = err instanceof Error ? err.message : "Failed to remove SSH key";
-        toast.error(message);
-      },
-    });
-  }
-
-  function handleCloseCreateSsh() {
-    setIsCreateSshOpen(false);
-    setNewSshKeyTitle("");
-    setNewSshPublicKey("");
-  }
-
   const gitUrl = getApiUrl();
-  const sshUrl = `git@sigmagit.com:${user.username}/your-repo.git`;
 
   return (
     <div className="space-y-8">
-      <Card>
-        <CardHeader>
-          <CardTitle>SSH Keys</CardTitle>
-          <CardDescription>Add public keys to authenticate Git operations over SSH without passwords.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="bg-muted/50 p-4 space-y-2">
-            <p className="text-sm font-medium">How to use</p>
-            <p className="text-sm text-muted-foreground">
-              Add your public key, then clone with SSH. Use your existing local private key for authentication.
-            </p>
-            <pre className="mt-2 p-3 bg-background border text-sm overflow-x-auto">
-              <code>{`$ git clone ${sshUrl}`}</code>
-            </pre>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium">Your SSH Keys</h3>
-            <Dialog open={isCreateSshOpen} onOpenChange={setIsCreateSshOpen}>
-              <DialogTrigger>
-                <Button size="sm">
-                  <Plus className="size-4 mr-2" />
-                  Add SSH Key
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Add SSH Key</DialogTitle>
-                  <DialogDescription>Paste a public key from your local machine, for example from ~/.ssh/id_ed25519.pub.</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="ssh-key-title">Name (Optional)</Label>
-                    <Input
-                      id="ssh-key-title"
-                      value={newSshKeyTitle}
-                      onChange={(e) => setNewSshKeyTitle(e.target.value)}
-                      placeholder="e.g., Work Laptop"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="ssh-public-key">Public Key</Label>
-                    <textarea
-                      id="ssh-public-key"
-                      value={newSshPublicKey}
-                      onChange={(e) => setNewSshPublicKey(e.target.value)}
-                      placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
-                      className="min-h-28 w-full border bg-background px-3 py-2 font-mono text-xs"
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={handleCloseCreateSsh} disabled={isCreatingSshKey}>
-                    Cancel
-                  </Button>
-                  <Button onClick={handleCreateSshKey} disabled={isCreatingSshKey}>
-                    {isCreatingSshKey && <Loader2 className="size-4 mr-2 animate-spin" />}
-                    Add Key
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          {sshKeysData?.sshKeys && sshKeysData.sshKeys.length > 0 ? (
-            <div className="border divide-y">
-              {sshKeysData.sshKeys.map((sshKey: SshKey) => (
-                <div key={sshKey.id} className="flex items-center justify-between p-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Fingerprint className="size-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm truncate">{sshKey.title || sshKey.comment || "SSH Key"}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {sshKey.algorithm} · {sshKey.fingerprintSha256} · Added {new Date(sshKey.createdAt).toLocaleDateString()}
-                        {sshKey.lastUsedAt && ` · Last used ${new Date(sshKey.lastUsedAt).toLocaleDateString()}`}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground truncate">{sshKey.publicKeyPreview}</p>
-                    </div>
-                  </div>
-                  <Dialog open={deleteSshKeyId === sshKey.id} onOpenChange={(open) => setDeleteSshKeyId(open ? sshKey.id : null)}>
-                    <DialogTrigger>
-                      <Button variant="ghost" size="icon">
-                        <Trash2 className="size-4 text-muted-foreground hover:text-destructive" />
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Remove SSH Key</DialogTitle>
-                        <DialogDescription>This key will no longer be able to access your repositories over SSH.</DialogDescription>
-                      </DialogHeader>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setDeleteSshKeyId(null)} disabled={isDeletingSshKey}>
-                          Cancel
-                        </Button>
-                        <Button variant="destructive" onClick={() => handleDeleteSshKey(sshKey.id)} disabled={isDeletingSshKey}>
-                          {isDeletingSshKey && <Loader2 className="size-4 mr-2 animate-spin" />}
-                          Remove Key
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 border border-dashed bg-muted/30">
-              <Fingerprint className="size-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">No SSH keys yet. Add one to use Git over SSH.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       <Card>
         <CardHeader>
           <CardTitle>Personal Access Tokens</CardTitle>

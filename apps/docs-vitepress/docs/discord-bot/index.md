@@ -443,7 +443,6 @@ PUBLIC_WEBHOOK_URL="http://your-domain.com/api/webhooks/discord"
 - [Docs Home](../) - Project overview
 - [API Documentation](../api/) - API endpoints
 - [Web App](../web/) - Web application
-- [Mobile App](../mobile/) - Mobile application
 - [Architecture](../architecture/) - System architecture
 - [Development](../development/) - Development workflow
 - [Deployment](../deployment/) - Deployment guides
