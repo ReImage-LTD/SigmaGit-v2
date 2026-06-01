@@ -1,6 +1,3 @@
-import { readdir, readFile, writeFile, unlink, mkdir, stat, rm } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
-import { config } from './config';
 import {
   S3Client,
   GetObjectCommand,
@@ -9,7 +6,54 @@ import {
   ListObjectsV2Command,
   HeadObjectCommand,
 } from '@aws-sdk/client-s3';
+import { readdir, readFile, writeFile, unlink, mkdir, stat, rm } from 'node:fs/promises';
 import { withTimeout, MAX_LOCAL_LIST_KEYS } from './middleware/limits';
+import { join, dirname } from 'node:path';
+import { config } from './config';
+
+function isThrottleLikeError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const maybe = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+  const status = maybe.$metadata?.httpStatusCode;
+  return (
+    maybe.name === 'SlowDown' || maybe.name === 'Throttling' || status === 429 || status === 503
+  );
+}
+
+async function runAdaptiveBatch<T>(
+  items: T[],
+  initialConcurrency: number,
+  minConcurrency: number,
+  maxConcurrency: number,
+  task: (item: T) => Promise<void>,
+): Promise<void> {
+  let index = 0;
+  let concurrency = Math.max(minConcurrency, Math.min(maxConcurrency, initialConcurrency));
+
+  while (index < items.length) {
+    const batchItems = items.slice(index, index + concurrency);
+    const results = await Promise.allSettled(batchItems.map((item) => task(item)));
+    index += batchItems.length;
+
+    const rejected = results.filter((result) => result.status === 'rejected');
+    if (rejected.length > 0) {
+      const hasThrottle = rejected.some((result) => isThrottleLikeError(result.reason));
+      if (hasThrottle) {
+        concurrency = Math.max(minConcurrency, Math.floor(concurrency / 2));
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      const firstFailure = rejected.find((result) => !isThrottleLikeError(result.reason));
+      if (firstFailure && firstFailure.status === 'rejected') {
+        throw firstFailure.reason;
+      }
+      continue;
+    }
+
+    if (concurrency < maxConcurrency) {
+      concurrency = Math.min(maxConcurrency, concurrency + 1);
+    }
+  }
+}
 
 export type StorageType = 's3' | 'local';
 
@@ -59,10 +103,10 @@ class S3StorageBackend implements StorageBackend {
           new GetObjectCommand({
             Bucket: this.bucket,
             Key: key,
-          })
+          }),
         ),
         30000,
-        'S3 get operation timeout'
+        'S3 get operation timeout',
       );
 
       if (!response.Body) {
@@ -90,7 +134,7 @@ class S3StorageBackend implements StorageBackend {
         Key: key,
         Body: body,
         ContentType: contentType,
-      })
+      }),
     );
   }
 
@@ -103,7 +147,7 @@ class S3StorageBackend implements StorageBackend {
       new DeleteObjectCommand({
         Bucket: this.bucket,
         Key: key,
-      })
+      }),
     );
   }
 
@@ -117,7 +161,7 @@ class S3StorageBackend implements StorageBackend {
         new HeadObjectCommand({
           Bucket: this.bucket,
           Key: key,
-        })
+        }),
       );
       return true;
     } catch (error: any) {
@@ -138,7 +182,7 @@ class S3StorageBackend implements StorageBackend {
         new HeadObjectCommand({
           Bucket: this.bucket,
           Key: key,
-        })
+        }),
       );
       return response.ContentLength ?? null;
     } catch (error: any) {
@@ -163,7 +207,7 @@ class S3StorageBackend implements StorageBackend {
           Bucket: this.bucket,
           Prefix: prefix,
           ContinuationToken: continuationToken,
-        })
+        }),
       );
 
       if (response.Contents) {
@@ -185,7 +229,8 @@ class S3StorageBackend implements StorageBackend {
       throw new Error('S3 is not configured');
     }
 
-    const BATCH_SIZE = 50;
+    const baseBatchSize = Math.max(1, Math.min(50, config.optimizations.s3AdaptiveMaxConcurrency));
+    const adaptiveEnabled = config.optimizations.s3AdaptiveDeleteEnabled;
     let continuationToken: string | undefined;
 
     do {
@@ -194,17 +239,27 @@ class S3StorageBackend implements StorageBackend {
           Bucket: this.bucket,
           Prefix: prefix,
           ContinuationToken: continuationToken,
-        })
+        }),
       );
 
       const keys =
         response.Contents?.map((obj) => obj.Key).filter((key): key is string => !!key) ?? [];
 
-      for (let i = 0; i < keys.length; i += BATCH_SIZE) {
-        const batch = keys.slice(i, i + BATCH_SIZE);
-        await Promise.all(batch.map((key) => this.delete(key)));
+      for (let i = 0; i < keys.length; i += baseBatchSize) {
+        const batch = keys.slice(i, i + baseBatchSize);
+        if (adaptiveEnabled) {
+          await runAdaptiveBatch(
+            batch,
+            baseBatchSize,
+            Math.max(1, config.optimizations.s3AdaptiveMinConcurrency),
+            Math.max(1, config.optimizations.s3AdaptiveMaxConcurrency),
+            (key) => this.delete(key),
+          );
+        } else {
+          await Promise.all(batch.map((key) => this.delete(key)));
+        }
 
-        if ((i / BATCH_SIZE) % 10 === 0) {
+        if ((i / baseBatchSize) % 10 === 0) {
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
       }
@@ -216,7 +271,8 @@ class S3StorageBackend implements StorageBackend {
   async copyPrefix(sourcePrefix: string, targetPrefix: string): Promise<void> {
     const normalizedSource = sourcePrefix.replace(/\/$/, '');
     const normalizedTarget = targetPrefix.replace(/\/$/, '');
-    const BATCH_SIZE = 20;
+    const baseBatchSize = Math.max(1, Math.min(20, config.optimizations.s3AdaptiveMaxConcurrency));
+    const adaptiveEnabled = config.optimizations.s3AdaptiveCopyEnabled;
     let continuationToken: string | undefined;
 
     do {
@@ -229,28 +285,38 @@ class S3StorageBackend implements StorageBackend {
           Bucket: this.bucket,
           Prefix: sourcePrefix,
           ContinuationToken: continuationToken,
-        })
+        }),
       );
 
       const keys =
         response.Contents?.map((obj) => obj.Key).filter((key): key is string => !!key) ?? [];
 
-      for (let i = 0; i < keys.length; i += BATCH_SIZE) {
-        const batch = keys.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < keys.length; i += baseBatchSize) {
+        const batch = keys.slice(i, i + baseBatchSize);
 
-        await Promise.all(
-          batch.map(async (key) => {
-            const data = await this.get(key);
-            if (!data) {
-              return;
-            }
-            const suffix = key.slice(normalizedSource.length);
-            const targetKey = `${normalizedTarget}${suffix}`;
-            await this.put(targetKey, data);
-          })
-        );
+        const copyOne = async (key: string) => {
+          const data = await this.get(key);
+          if (!data) {
+            return;
+          }
+          const suffix = key.slice(normalizedSource.length);
+          const targetKey = `${normalizedTarget}${suffix}`;
+          await this.put(targetKey, data);
+        };
 
-        if ((i / BATCH_SIZE) % 10 === 0) {
+        if (adaptiveEnabled) {
+          await runAdaptiveBatch(
+            batch,
+            baseBatchSize,
+            Math.max(1, config.optimizations.s3AdaptiveMinConcurrency),
+            Math.max(1, config.optimizations.s3AdaptiveMaxConcurrency),
+            copyOne,
+          );
+        } else {
+          await Promise.all(batch.map(copyOne));
+        }
+
+        if ((i / baseBatchSize) % 10 === 0) {
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
       }
@@ -269,7 +335,7 @@ class S3StorageBackend implements StorageBackend {
         new GetObjectCommand({
           Bucket: this.bucket,
           Key: key,
-        })
+        }),
       );
 
       if (!response.Body) {
@@ -406,7 +472,9 @@ class LocalStorageBackend implements StorageBackend {
     for await (const key of this.walkLocalKeys(fullPath, prefix.replace(/\/$/, ''))) {
       keys.push(key);
       if (keys.length >= MAX_LOCAL_LIST_KEYS) {
-        console.warn(`[Storage] local list truncated at ${MAX_LOCAL_LIST_KEYS} keys for prefix ${prefix}`);
+        console.warn(
+          `[Storage] local list truncated at ${MAX_LOCAL_LIST_KEYS} keys for prefix ${prefix}`,
+        );
         break;
       }
     }
@@ -458,7 +526,7 @@ class LocalStorageBackend implements StorageBackend {
           if (data) {
             await this.put(targetKey, data);
           }
-        })
+        }),
       );
     };
 
@@ -513,14 +581,21 @@ class LocalStorageBackend implements StorageBackend {
 export function getStorageBackend(): StorageBackend {
   const type = config.storage.type;
 
-  switch (type) {
-    case 'local':
-      return new LocalStorageBackend();
-    case 's3':
-    default:
-      return new S3StorageBackend();
+  if (type === 'local') {
+    if (!localBackend) {
+      localBackend = new LocalStorageBackend();
+    }
+    return localBackend;
   }
+
+  if (!s3Backend) {
+    s3Backend = new S3StorageBackend();
+  }
+  return s3Backend;
 }
+
+let s3Backend: S3StorageBackend | null = null;
+let localBackend: LocalStorageBackend | null = null;
 
 export const getRepoPrefix = (owner: string, repo: string): string => {
   return `repos/${owner}/${repo}`;
@@ -531,7 +606,11 @@ export const getObject = async (key: string): Promise<Buffer | null> => {
   return storage.get(key);
 };
 
-export const putObject = async (key: string, body: Buffer | Uint8Array | string, contentType?: string): Promise<void> => {
+export const putObject = async (
+  key: string,
+  body: Buffer | Uint8Array | string,
+  contentType?: string,
+): Promise<void> => {
   const storage = getStorageBackend();
   return storage.put(key, body, contentType);
 };

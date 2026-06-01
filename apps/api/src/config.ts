@@ -9,10 +9,15 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function envBool(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  return raw === '1' || raw.toLowerCase() === 'true';
+}
+
 function isProductionEnv(): boolean {
   return (
-    process.env.NODE_ENV === 'production' ||
-    process.env.RAILWAY_ENVIRONMENT_NAME === 'production'
+    process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT_NAME === 'production'
   );
 }
 
@@ -38,6 +43,14 @@ export const config = {
       secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
       bucket: process.env.S3_BUCKET || process.env.S3_BUCKET_NAME!,
     },
+  },
+  optimizations: {
+    gitNegativeCacheEnabled: envBool('GIT_NEGATIVE_CACHE_ENABLED', true),
+    gitNegativeCacheTtlMs: envInt('GIT_NEGATIVE_CACHE_TTL_MS', 5000),
+    s3AdaptiveCopyEnabled: envBool('S3_ADAPTIVE_COPY_ENABLED', true),
+    s3AdaptiveDeleteEnabled: envBool('S3_ADAPTIVE_DELETE_ENABLED', true),
+    s3AdaptiveMinConcurrency: envInt('S3_ADAPTIVE_MIN_CONCURRENCY', 4),
+    s3AdaptiveMaxConcurrency: envInt('S3_ADAPTIVE_MAX_CONCURRENCY', 32),
   },
   betterAuthSecret: process.env.BETTER_AUTH_SECRET!,
   nodeEnv: process.env.NODE_ENV || process.env.RAILWAY_ENVIRONMENT_NAME || 'development',

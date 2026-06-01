@@ -2,6 +2,8 @@
   "name": "sigmagit",
   "devDependencies": {
     "prettier": "^3.8.3",
+    "prettier-plugin-sort-imports": "^1.8.11",
+    "prettier-plugin-tailwindcss": "^0.8.0",
     "turbo": "^2.9.16",
     "typescript": "^5.9.3"
   },

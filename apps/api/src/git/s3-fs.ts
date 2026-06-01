@@ -1,7 +1,15 @@
-import { getObject, putObject, deleteObject, listObjects, objectExists, getObjectSize } from "../s3";
+import {
+  getObject,
+  putObject,
+  deleteObject,
+  listObjects,
+  objectExists,
+  getObjectSize,
+} from '../s3';
+import { config } from '../config';
 
 export interface S3FsStats {
-  type: "file" | "dir";
+  type: 'file' | 'dir';
   mode: number;
   size: number;
   ino: number;
@@ -16,49 +24,97 @@ export interface S3FsStats {
 }
 
 export function createS3Fs(basePath: string) {
+  const negativeCache = new Map<string, number>();
+  const negativeCacheTtlMs = Math.max(1000, config.optimizations.gitNegativeCacheTtlMs);
+
+  const isMutableRefPath = (key: string): boolean => {
+    const normalizedKey = key.includes(':') ? key.slice(key.indexOf(':') + 1) : key;
+    const normalized = normalizedKey.startsWith(`${basePath}/`)
+      ? normalizedKey.slice(basePath.length + 1)
+      : normalizedKey;
+    return normalized === 'HEAD' || normalized === 'packed-refs' || normalized.startsWith('refs/');
+  };
+
+  const hasNegative = (key: string): boolean => {
+    if (!config.optimizations.gitNegativeCacheEnabled || isMutableRefPath(key)) {
+      return false;
+    }
+    const expiresAt = negativeCache.get(key);
+    if (!expiresAt) {
+      return false;
+    }
+    if (expiresAt <= Date.now()) {
+      negativeCache.delete(key);
+      return false;
+    }
+    return true;
+  };
+
+  const markNegative = (key: string): void => {
+    if (!config.optimizations.gitNegativeCacheEnabled || isMutableRefPath(key)) {
+      return;
+    }
+    negativeCache.set(key, Date.now() + negativeCacheTtlMs);
+  };
+
+  const clearNegative = (key: string): void => {
+    negativeCache.delete(key);
+  };
+
   const normalize = (filepath: string): string => {
-    let path = filepath.startsWith("/") ? filepath.slice(1) : filepath;
-    if (path === ".git" || path === ".git/") {
+    let path = filepath.startsWith('/') ? filepath.slice(1) : filepath;
+    if (path === '.git' || path === '.git/') {
       return basePath;
     }
-    if (path.startsWith(".git/")) {
+    if (path.startsWith('.git/')) {
       path = path.slice(5);
     }
-    if (!path || path === "/") {
+    if (!path || path === '/') {
       return basePath;
     }
     // Resolve . and .. to prevent path traversal outside basePath
-    const parts = path.split("/").filter(Boolean);
+    const parts = path.split('/').filter(Boolean);
     const resolved: string[] = [];
     for (const p of parts) {
-      if (p === "..") {
+      if (p === '..') {
         resolved.pop();
-      } else if (p !== ".") {
+      } else if (p !== '.') {
         resolved.push(p);
       }
     }
-    const joined = resolved.join("/");
+    const joined = resolved.join('/');
     if (!joined) return basePath;
-    return `${basePath}/${joined}`.replace(/\/+/g, "/").replace(/\/$/, "");
+    return `${basePath}/${joined}`.replace(/\/+/g, '/').replace(/\/$/, '');
   };
 
   const fs = {
     promises: {
       async readFile(
         filepath: string,
-        options?: { encoding?: string } | string
+        options?: { encoding?: string } | string,
       ): Promise<Buffer | string> {
         const key = normalize(filepath);
-        const data = await getObject(key);
-        if (!data) {
-          const err = new Error(`ENOENT: no such file or directory, open '${filepath}'`) as NodeJS.ErrnoException;
-          err.code = "ENOENT";
+        if (hasNegative(`file:${key}`)) {
+          const err = new Error(
+            `ENOENT: no such file or directory, open '${filepath}'`,
+          ) as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
           throw err;
         }
+        const data = await getObject(key);
+        if (!data) {
+          markNegative(`file:${key}`);
+          const err = new Error(
+            `ENOENT: no such file or directory, open '${filepath}'`,
+          ) as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
+          throw err;
+        }
+        clearNegative(`file:${key}`);
 
-        const encoding = typeof options === "string" ? options : options?.encoding;
-        if (encoding === "utf8" || encoding === "utf-8") {
-          return data.toString("utf8");
+        const encoding = typeof options === 'string' ? options : options?.encoding;
+        if (encoding === 'utf8' || encoding === 'utf-8') {
+          return data.toString('utf8');
         }
         return data;
       },
@@ -66,23 +122,35 @@ export function createS3Fs(basePath: string) {
       async writeFile(filepath: string, data: Buffer | Uint8Array | string): Promise<void> {
         const key = normalize(filepath);
         await putObject(key, data instanceof Buffer ? data : Buffer.from(data));
+        clearNegative(`file:${key}`);
+        clearNegative(`stat:${key}`);
       },
 
       async unlink(filepath: string): Promise<void> {
         const key = normalize(filepath);
         await deleteObject(key);
+        markNegative(`file:${key}`);
+        markNegative(`stat:${key}`);
       },
 
       async readdir(filepath: string): Promise<string[]> {
         const prefix = normalize(filepath);
-        const searchPrefix = prefix.endsWith("/") ? prefix : prefix + "/";
+        const searchPrefix = prefix.endsWith('/') ? prefix : prefix + '/';
+        if (hasNegative(`dir:${searchPrefix}`)) {
+          return [];
+        }
         const keys = await listObjects(searchPrefix);
+        if (keys.length === 0) {
+          markNegative(`dir:${searchPrefix}`);
+          return [];
+        }
+        clearNegative(`dir:${searchPrefix}`);
 
         const entries = new Set<string>();
         for (const key of keys) {
           const relative = key.slice(searchPrefix.length);
           if (relative) {
-            const firstPart = relative.split("/")[0];
+            const firstPart = relative.split('/')[0];
             if (firstPart) {
               entries.add(firstPart);
             }
@@ -98,7 +166,7 @@ export function createS3Fs(basePath: string) {
 
       async rmdir(filepath: string): Promise<void> {
         const prefix = normalize(filepath);
-        const keys = await listObjects(prefix + "/");
+        const keys = await listObjects(prefix + '/');
         for (const key of keys) {
           await deleteObject(key);
         }
@@ -106,10 +174,17 @@ export function createS3Fs(basePath: string) {
 
       async stat(filepath: string): Promise<S3FsStats> {
         const key = normalize(filepath);
+        if (hasNegative(`stat:${key}`)) {
+          const err = new Error(
+            `ENOENT: no such file or directory, stat '${filepath}'`,
+          ) as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
+          throw err;
+        }
 
         if (key === basePath) {
           return {
-            type: "dir",
+            type: 'dir',
             mode: 0o040755,
             size: 0,
             ino: 0,
@@ -126,9 +201,11 @@ export function createS3Fs(basePath: string) {
 
         const exists = await objectExists(key);
         if (exists) {
+          clearNegative(`file:${key}`);
+          clearNegative(`stat:${key}`);
           const size = (await getObjectSize(key)) ?? 0;
           return {
-            type: "file",
+            type: 'file',
             mode: 0o100644,
             size,
             ino: 0,
@@ -143,11 +220,13 @@ export function createS3Fs(basePath: string) {
           };
         }
 
-        const dirPrefix = key + "/";
+        const dirPrefix = key + '/';
         const keys = await listObjects(dirPrefix);
         if (keys.length > 0) {
+          clearNegative(`dir:${dirPrefix}`);
+          clearNegative(`stat:${key}`);
           return {
-            type: "dir",
+            type: 'dir',
             mode: 0o040755,
             size: 0,
             ino: 0,
@@ -162,8 +241,13 @@ export function createS3Fs(basePath: string) {
           };
         }
 
-        const err = new Error(`ENOENT: no such file or directory, stat '${filepath}'`) as NodeJS.ErrnoException;
-        err.code = "ENOENT";
+        markNegative(`stat:${key}`);
+        markNegative(`file:${key}`);
+        markNegative(`dir:${dirPrefix}`);
+        const err = new Error(
+          `ENOENT: no such file or directory, stat '${filepath}'`,
+        ) as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
         throw err;
       },
 
@@ -172,7 +256,7 @@ export function createS3Fs(basePath: string) {
       },
 
       async readlink(filepath: string): Promise<string> {
-        const data = await this.readFile(filepath, "utf8");
+        const data = await this.readFile(filepath, 'utf8');
         return data as string;
       },
 
