@@ -1,6 +1,6 @@
 import { pgTable, text, timestamp, boolean, uuid, jsonb, primaryKey, integer, index, bigint, customType } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { relations, sql } from "drizzle-orm";
+import { relations, sql, type SQL } from "drizzle-orm";
 
 const tsvector = customType<{ data: string }>({
   dataType() {
@@ -69,23 +69,27 @@ export const sessions = pgTable(
   ]
 );
 
-export const accounts = pgTable("accounts", {
-  id: text("id").primaryKey(),
-  accountId: text("account_id").notNull(),
-  providerId: text("provider_id").notNull(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  accessToken: text("access_token"),
-  refreshToken: text("refresh_token"),
-  idToken: text("id_token"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at"),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
-  scope: text("scope"),
-  password: text("password"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at"),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [index("accounts_user_id_idx").on(table.userId)]
+);
 
 export const verifications = pgTable(
   "verifications",
@@ -235,7 +239,10 @@ export const repositories = pgTable(
       .notNull()
       .default("public"),
     defaultBranch: text("default_branch").notNull().default("main"),
-    searchVector: tsvector("search_vector"),
+    searchVector: tsvector("search_vector").generatedAlwaysAs(
+      (): SQL =>
+        sql`setweight(to_tsvector('english', coalesce(${repositories.name}, '')), 'A') || setweight(to_tsvector('english', coalesce(${repositories.description}, '')), 'B')`
+    ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -307,7 +314,10 @@ export const issues = pgTable(
     locked: boolean("locked").notNull().default(false),
     closedAt: timestamp("closed_at"),
     closedById: text("closed_by_id").references(() => users.id),
-    searchVector: tsvector("search_vector"),
+    searchVector: tsvector("search_vector").generatedAlwaysAs(
+      (): SQL =>
+        sql`setweight(to_tsvector('english', coalesce(${issues.title}, '')), 'A') || setweight(to_tsvector('english', coalesce(${issues.body}, '')), 'B')`
+    ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -343,7 +353,10 @@ export const issueLabels = pgTable(
       .notNull()
       .references(() => labels.id, { onDelete: "cascade" }),
   },
-  (table) => [primaryKey({ columns: [table.issueId, table.labelId] })]
+  (table) => [
+    primaryKey({ columns: [table.issueId, table.labelId] }),
+    index("issue_labels_label_id_idx").on(table.labelId),
+  ]
 );
 
 export const issueAssignees = pgTable(
@@ -357,7 +370,10 @@ export const issueAssignees = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     assignedAt: timestamp("assigned_at").notNull().defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.issueId, table.userId] })]
+  (table) => [
+    primaryKey({ columns: [table.issueId, table.userId] }),
+    index("issue_assignees_user_id_idx").on(table.userId),
+  ]
 );
 
 export const issueComments = pgTable(
@@ -452,7 +468,10 @@ export const pullRequests = pgTable(
     mergeCommitOid: text("merge_commit_oid"),
     closedAt: timestamp("closed_at"),
     closedById: text("closed_by_id").references(() => users.id),
-    searchVector: tsvector("search_vector"),
+    searchVector: tsvector("search_vector").generatedAlwaysAs(
+      (): SQL =>
+        sql`setweight(to_tsvector('english', coalesce(${pullRequests.title}, '')), 'A') || setweight(to_tsvector('english', coalesce(${pullRequests.body}, '')), 'B')`
+    ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -518,7 +537,10 @@ export const prLabels = pgTable(
       .notNull()
       .references(() => labels.id, { onDelete: "cascade" }),
   },
-  (table) => [primaryKey({ columns: [table.pullRequestId, table.labelId] })]
+  (table) => [
+    primaryKey({ columns: [table.pullRequestId, table.labelId] }),
+    index("pr_labels_label_id_idx").on(table.labelId),
+  ]
 );
 
 export const prAssignees = pgTable(
@@ -532,7 +554,10 @@ export const prAssignees = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     assignedAt: timestamp("assigned_at").notNull().defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.pullRequestId, table.userId] })]
+  (table) => [
+    primaryKey({ columns: [table.pullRequestId, table.userId] }),
+    index("pr_assignees_user_id_idx").on(table.userId),
+  ]
 );
 
 export const prReviewers = pgTable(
@@ -546,7 +571,10 @@ export const prReviewers = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     requestedAt: timestamp("requested_at").notNull().defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.pullRequestId, table.userId] })]
+  (table) => [
+    primaryKey({ columns: [table.pullRequestId, table.userId] }),
+    index("pr_reviewers_user_id_idx").on(table.userId),
+  ]
 );
 
 export const prReactions = pgTable(
@@ -600,7 +628,10 @@ export const discussions = pgTable(
     isLocked: boolean("is_locked").notNull().default(false),
     isAnswered: boolean("is_answered").notNull().default(false),
     answerId: uuid("answer_id"),
-    searchVector: tsvector("search_vector"),
+    searchVector: tsvector("search_vector").generatedAlwaysAs(
+      (): SQL =>
+        sql`setweight(to_tsvector('english', coalesce(${discussions.title}, '')), 'A') || setweight(to_tsvector('english', coalesce(${discussions.body}, '')), 'B')`
+    ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1149,7 +1180,10 @@ export const gistStars = pgTable(
       .references(() => gists.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.gistId] })]
+  (table) => [
+    primaryKey({ columns: [table.userId, table.gistId] }),
+    index("gist_stars_gist_id_idx").on(table.gistId),
+  ]
 );
 
 export const gistForks = pgTable(

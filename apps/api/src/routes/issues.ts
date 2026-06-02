@@ -338,15 +338,17 @@ app.post("/api/repositories/:owner/:name/issues", requireAuth, writeRateLimit, a
     .returning();
 
   if (body.labels?.length) {
-    for (const labelId of body.labels) {
-      await db.insert(issueLabels).values({ issueId: inserted.id, labelId }).onConflictDoNothing();
-    }
+    await db
+      .insert(issueLabels)
+      .values(body.labels.map((labelId) => ({ issueId: inserted.id, labelId })))
+      .onConflictDoNothing();
   }
 
   if (body.assignees?.length) {
-    for (const assigneeId of body.assignees) {
-      await db.insert(issueAssignees).values({ issueId: inserted.id, userId: assigneeId }).onConflictDoNothing();
-    }
+    await db
+      .insert(issueAssignees)
+      .values(body.assignees.map((assigneeId) => ({ issueId: inserted.id, userId: assigneeId })))
+      .onConflictDoNothing();
   }
 
   const issueLabelsData = await getIssueLabels(inserted.id);
@@ -672,8 +674,11 @@ app.post("/api/issues/:id/labels", requireAuth, async (c) => {
     return c.json({ error: "Not authorized" }, 403);
   }
 
-  for (const labelId of body.labels) {
-    await db.insert(issueLabels).values({ issueId: id, labelId }).onConflictDoNothing();
+  if (body.labels.length) {
+    await db
+      .insert(issueLabels)
+      .values(body.labels.map((labelId) => ({ issueId: id, labelId })))
+      .onConflictDoNothing();
   }
 
   return c.json({ success: true });
@@ -726,8 +731,11 @@ app.post("/api/issues/:id/assignees", requireAuth, async (c) => {
     return c.json({ error: "Not authorized" }, 403);
   }
 
-  for (const assigneeId of body.assignees) {
-    await db.insert(issueAssignees).values({ issueId: id, userId: assigneeId }).onConflictDoNothing();
+  if (body.assignees.length) {
+    await db
+      .insert(issueAssignees)
+      .values(body.assignees.map((assigneeId) => ({ issueId: id, userId: assigneeId })))
+      .onConflictDoNothing();
   }
 
   return c.json({ success: true });

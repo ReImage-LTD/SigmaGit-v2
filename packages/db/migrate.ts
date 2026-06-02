@@ -8,6 +8,7 @@ async function runMigrations() {
 
   const migrationFiles = [
     '001_add_discord_links.sql',
+    '002_optimize_search_and_indexes.sql',
   ];
 
   const db = createDatabase(config.databaseUrl);

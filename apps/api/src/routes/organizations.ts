@@ -64,15 +64,16 @@ app.get("/api/organizations/:org", async (c) => {
     return c.json({ error: "Organization not found" }, 404);
   }
 
-  const [memberCount] = await db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(organizationMembers)
-    .where(eq(organizationMembers.organizationId, org.id));
-
-  const [repoCount] = await db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(repositories)
-    .where(eq(repositories.organizationId, org.id));
+  const [[memberCount], [repoCount]] = await Promise.all([
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(organizationMembers)
+      .where(eq(organizationMembers.organizationId, org.id)),
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(repositories)
+      .where(eq(repositories.organizationId, org.id)),
+  ]);
 
   return c.json({
     ...org,

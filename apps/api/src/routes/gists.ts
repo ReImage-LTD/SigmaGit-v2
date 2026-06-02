@@ -15,6 +15,8 @@ function isGistVisibility(value: unknown): value is GistVisibility {
   return typeof value === "string" && GIST_VISIBILITIES.includes(value as GistVisibility);
 }
 
+type GistFileInput = { id?: string; filename: string; content: string; language?: string };
+
 
 function groupFilesByGistId(files: Array<{ gistId: string }>) {
   const filesByGistId = new Map<string, Array<(typeof files)[number]>>();
@@ -95,16 +97,18 @@ app.post("/api/gists", requireAuth, writeRateLimit, async (c) => {
     })
     .returning();
 
-  for (const file of files) {
-    await db.insert(gistFiles).values({
-      gistId: gist.id,
-      filename: file.filename,
-      content: file.content,
-      language: file.language,
-      size: file.content.length,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+  if (files.length) {
+    await db.insert(gistFiles).values(
+      files.map((file) => ({
+        gistId: gist.id,
+        filename: file.filename,
+        content: file.content,
+        language: file.language,
+        size: file.content.length,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }))
+    );
   }
 
   const filesList = await db
@@ -117,12 +121,16 @@ app.post("/api/gists", requireAuth, writeRateLimit, async (c) => {
 
 app.get("/api/gists", requireAuth, async (c) => {
   const user = c.get("user")!;
+  const limit = parseLimit(c.req.query("limit"), 30, 100);
+  const offset = parseOffset(c.req.query("offset"), 0);
 
   const gistsList = await db
     .select()
     .from(gists)
     .where(eq(gists.ownerId, user.id))
-    .orderBy(desc(gists.updatedAt));
+    .orderBy(desc(gists.updatedAt))
+    .limit(limit)
+    .offset(offset);
 
   const gistsWithFiles = await attachFilesToGists(gistsList);
 
@@ -212,33 +220,35 @@ app.patch("/api/gists/:id", requireAuth, async (c) => {
     .where(eq(gists.id, id));
 
   if (body.files) {
-    for (const file of body.files) {
-      if (file.content === undefined) continue;
+    await Promise.all(
+      body.files
+        .filter((file: GistFileInput) => file.content !== undefined)
+        .map((file: GistFileInput) => {
+          const updateData: Record<string, unknown> = {
+            content: file.content,
+            size: file.content.length,
+            updatedAt: new Date(),
+          };
 
-      const updateData: Record<string, unknown> = {
-        content: file.content,
-        size: file.content.length,
-        updatedAt: new Date(),
-      };
-      
-      if (file.language !== undefined) {
-        updateData.language = file.language;
-      }
-      
-      if (file.filename !== undefined) {
-        updateData.filename = file.filename;
-      }
+          if (file.language !== undefined) {
+            updateData.language = file.language;
+          }
 
-      await db
-        .update(gistFiles)
-        .set(updateData)
-        .where(
-          and(
-            eq(gistFiles.gistId, id),
-            file.id ? eq(gistFiles.id, file.id) : eq(gistFiles.filename, file.filename)
-          )
-        );
-    }
+          if (file.filename !== undefined) {
+            updateData.filename = file.filename;
+          }
+
+          return db
+            .update(gistFiles)
+            .set(updateData)
+            .where(
+              and(
+                eq(gistFiles.gistId, id),
+                file.id ? eq(gistFiles.id, file.id) : eq(gistFiles.filename, file.filename)
+              )
+            );
+        })
+    );
   }
 
   const [updated] = await db.select().from(gists).where(eq(gists.id, id));
@@ -386,16 +396,18 @@ app.post("/api/gists/:id/fork", requireAuth, async (c) => {
     .from(gistFiles)
     .where(eq(gistFiles.gistId, id));
 
-  for (const file of filesList) {
-    await db.insert(gistFiles).values({
-      gistId: fork.id,
-      filename: file.filename,
-      content: file.content,
-      language: file.language,
-      size: file.size,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+  if (filesList.length) {
+    await db.insert(gistFiles).values(
+      filesList.map((file) => ({
+        gistId: fork.id,
+        filename: file.filename,
+        content: file.content,
+        language: file.language,
+        size: file.size,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }))
+    );
   }
 
   return c.json({ id: fork.id });

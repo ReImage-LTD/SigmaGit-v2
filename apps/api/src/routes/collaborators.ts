@@ -4,6 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { authMiddleware, requireAuth, type AuthVariables } from "../middleware/auth";
 import { canManageRepository } from "../lib/access";
 import { resolveRepositoryWithAccess } from "../lib/repo-helpers";
+import { appCache } from "../redis";
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -77,6 +78,8 @@ app.post("/api/repositories/:owner/:name/collaborators", requireAuth, async (c) 
       set: { permission, updatedAt: new Date() },
     });
 
+  await appCache.invalidateAccess(repo.id, targetUser.id);
+
   return c.json({
     collaborator: {
       user: { id: targetUser.id, username: targetUser.username, name: targetUser.name, avatarUrl: targetUser.avatarUrl },
@@ -112,6 +115,8 @@ app.patch("/api/repositories/:owner/:name/collaborators/:userId", requireAuth, a
       )
     );
 
+  await appCache.invalidateAccess(repo.id, targetUserId);
+
   return c.json({ success: true });
 });
 
@@ -139,6 +144,8 @@ app.delete("/api/repositories/:owner/:name/collaborators/:userId", requireAuth, 
         eq(repositoryCollaborators.userId, targetUserId)
       )
     );
+
+  await appCache.invalidateAccess(repo.id, targetUserId);
 
   return c.json({ success: true });
 });

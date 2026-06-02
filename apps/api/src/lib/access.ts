@@ -6,6 +6,7 @@ import {
   teamMembers,
 } from '@sigmagit/db';
 import { eq, and, inArray } from 'drizzle-orm';
+import { getCached, setCache, CACHE_TTL, appCache } from '../redis';
 
 export type AccessUser = { id: string; role?: string } | null | undefined;
 export type Repository = {
@@ -82,6 +83,37 @@ async function getOrgMemberRole(
   return member?.role ?? null;
 }
 
+type OrgRole = 'owner' | 'admin' | 'member';
+
+type RepoAccessFacts = {
+  collaboratorPermission: RepoPermission | null;
+  orgRole: OrgRole | null;
+  teamPermission: RepoPermission | null;
+};
+
+/**
+ * Resolve (and cache) the membership-derived access facts for a single
+ * (repo, user) pair. Only membership data is cached — repo visibility and
+ * ownership are evaluated live by the callers, so they can never go stale.
+ * Cached facts are invalidated on collaborator changes and otherwise expire
+ * after CACHE_TTL.accessFacts (short TTL bounds staleness for org/team changes).
+ */
+async function getRepoAccessFacts(repo: Repository, userId: string): Promise<RepoAccessFacts> {
+  const cacheKey = appCache.accessKey(repo.id, userId);
+  const cached = await getCached<RepoAccessFacts>(cacheKey);
+  if (cached) return cached;
+
+  const [collaboratorPermission, orgRole, teamPermission] = await Promise.all([
+    getCollaboratorPermission(repo.id, userId),
+    repo.organizationId ? getOrgMemberRole(repo.organizationId, userId) : Promise.resolve(null),
+    getBestTeamPermission(repo.id, userId),
+  ]);
+
+  const facts: RepoAccessFacts = { collaboratorPermission, orgRole, teamPermission };
+  await setCache(cacheKey, facts, CACHE_TTL.accessFacts);
+  return facts;
+}
+
 /**
  * Check if a user can access a repository.
  *
@@ -103,8 +135,8 @@ export async function canAccessRepository(
     // For write operations, admins still need to be owner or write/admin collaborator
     if (!writeRequired) return true;
     if (user.id === repo.ownerId) return true;
-    const permission = await getCollaboratorPermission(repo.id, user.id);
-    return permission != null && hasWritePermission(permission);
+    const { collaboratorPermission } = await getRepoAccessFacts(repo, user.id);
+    return collaboratorPermission != null && hasWritePermission(collaboratorPermission);
   }
 
   // Public repos - anyone can read
@@ -116,23 +148,23 @@ export async function canAccessRepository(
   // Owner always has access
   if (user.id === repo.ownerId) return true;
 
+  const facts = await getRepoAccessFacts(repo, user.id);
+
   // Organization membership
   if (repo.organizationId) {
-    const role = await getOrgMemberRole(repo.organizationId, user.id);
+    const role = facts.orgRole;
     if (role === 'owner' || role === 'admin') return true;
     if (role === 'member' && repo.visibility === 'public' && !writeRequired) return true;
   }
 
   // Check collaborator status
-  const collaboratorPermission = await getCollaboratorPermission(repo.id, user.id);
-  if (collaboratorPermission != null) {
-    return satisfiesAccess(collaboratorPermission, writeRequired);
+  if (facts.collaboratorPermission != null) {
+    return satisfiesAccess(facts.collaboratorPermission, writeRequired);
   }
 
   // Check team repository access
-  const teamPermission = await getBestTeamPermission(repo.id, user.id);
-  if (teamPermission != null) {
-    return satisfiesAccess(teamPermission, writeRequired);
+  if (facts.teamPermission != null) {
+    return satisfiesAccess(facts.teamPermission, writeRequired);
   }
 
   return false;
@@ -280,11 +312,11 @@ export async function canManageRepository(
 ): Promise<boolean> {
   if (user.id === repo.ownerId) return true;
 
-  if (repo.organizationId) {
-    const role = await getOrgMemberRole(repo.organizationId, user.id);
-    if (role === 'owner' || role === 'admin') return true;
+  const facts = await getRepoAccessFacts(repo, user.id);
+
+  if (repo.organizationId && (facts.orgRole === 'owner' || facts.orgRole === 'admin')) {
+    return true;
   }
 
-  const permission = await getCollaboratorPermission(repo.id, user.id);
-  return permission === 'admin';
+  return facts.collaboratorPermission === 'admin';
 }

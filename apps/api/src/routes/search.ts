@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db, users, repositories, issues, pullRequests } from "@sigmagit/db";
-import { eq, and, or, ilike, desc } from "drizzle-orm";
+import { eq, and, or, ilike, desc, sql } from "drizzle-orm";
 import { type AuthVariables } from "../middleware/auth";
 import { parseLimit, parseOffset } from "../lib/validation";
 import { filterAccessibleRepos, type Repository } from "../lib/access";
@@ -65,12 +65,7 @@ app.get("/api/search", async (c) => {
       })
       .from(repositories)
       .innerJoin(users, eq(users.id, repositories.ownerId))
-      .where(
-        or(
-          ilike(repositories.name, searchPattern),
-          ilike(repositories.description, searchPattern)
-        )
-      )
+      .where(sql`${repositories.searchVector} @@ websearch_to_tsquery('english', ${query})`)
       .orderBy(desc(repositories.createdAt))
       .limit(type === "all" ? 20 : limit + offset)
       .offset(0);
@@ -110,12 +105,7 @@ app.get("/api/search", async (c) => {
       .from(issues)
       .innerJoin(repositories, eq(repositories.id, issues.repositoryId))
       .innerJoin(users, eq(users.id, repositories.ownerId))
-      .where(
-        or(
-          ilike(issues.title, searchPattern),
-          ilike(issues.body, searchPattern)
-        )
-      )
+      .where(sql`${issues.searchVector} @@ websearch_to_tsquery('english', ${query})`)
       .orderBy(desc(issues.createdAt))
       .limit(type === "all" ? 20 : limit + offset)
       .offset(0);
@@ -161,12 +151,7 @@ app.get("/api/search", async (c) => {
       .from(pullRequests)
       .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))
       .innerJoin(users, eq(users.id, repositories.ownerId))
-      .where(
-        or(
-          ilike(pullRequests.title, searchPattern),
-          ilike(pullRequests.body, searchPattern)
-        )
-      )
+      .where(sql`${pullRequests.searchVector} @@ websearch_to_tsquery('english', ${query})`)
       .orderBy(desc(pullRequests.createdAt))
       .limit(type === "all" ? 20 : limit + offset)
       .offset(0);

@@ -186,65 +186,61 @@ async function getActuallyEmptyRepositories(): Promise<EmptyRepoCandidate[]> {
 }
 
 app.get("/api/admin/stats", async (c) => {
-  const [userCount] = await db.select({ count: count() }).from(users);
-  const [repoCount] = await db.select({ count: count() }).from(repositories);
-  const [publicRepoCount] = await db
-    .select({ count: count() })
-    .from(repositories)
-    .where(eq(repositories.visibility, "public"));
-  const [privateRepoCount] = await db
-    .select({ count: count() })
-    .from(repositories)
-    .where(eq(repositories.visibility, "private"));
-  const [adminCount] = await db
-    .select({ count: count() })
-    .from(users)
-    .where(eq(users.role, "admin"));
-  const [moderatorCount] = await db
-    .select({ count: count() })
-    .from(users)
-    .where(eq(users.role, "moderator"));
-  const [orgCount] = await db.select({ count: count() }).from(organizations);
-  const [issueCount] = await db.select({ count: count() }).from(issues);
-  const [openIssueCount] = await db
-    .select({ count: count() })
-    .from(issues)
-    .where(eq(issues.state, "open"));
-  const [prCount] = await db.select({ count: count() }).from(pullRequests);
-  const [openPrCount] = await db
-    .select({ count: count() })
-    .from(pullRequests)
-    .where(eq(pullRequests.state, "open"));
-  const [gistCount] = await db.select({ count: count() }).from(gists);
-
   // Get recent activity (last 30 days)
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const [recentUsers] = await db
-    .select({ count: count() })
-    .from(users)
-    .where(gte(users.createdAt, thirtyDaysAgo));
-  const [recentRepos] = await db
-    .select({ count: count() })
-    .from(repositories)
-    .where(gte(repositories.createdAt, thirtyDaysAgo));
+  // Collapse per-table counts into a single scan each using FILTER aggregates,
+  // and run the (now 6) independent queries in parallel.
+  const [[userStats], [repoStats], [issueStats], [prStats], [orgStats], [gistStats]] =
+    await Promise.all([
+      db
+        .select({
+          total: count(),
+          admins: sql<number>`count(*) filter (where ${users.role} = 'admin')`,
+          moderators: sql<number>`count(*) filter (where ${users.role} = 'moderator')`,
+          recent: sql<number>`count(*) filter (where ${users.createdAt} >= ${thirtyDaysAgo})`,
+        })
+        .from(users),
+      db
+        .select({
+          total: count(),
+          public: sql<number>`count(*) filter (where ${repositories.visibility} = 'public')`,
+          private: sql<number>`count(*) filter (where ${repositories.visibility} = 'private')`,
+          recent: sql<number>`count(*) filter (where ${repositories.createdAt} >= ${thirtyDaysAgo})`,
+        })
+        .from(repositories),
+      db
+        .select({
+          total: count(),
+          open: sql<number>`count(*) filter (where ${issues.state} = 'open')`,
+        })
+        .from(issues),
+      db
+        .select({
+          total: count(),
+          open: sql<number>`count(*) filter (where ${pullRequests.state} = 'open')`,
+        })
+        .from(pullRequests),
+      db.select({ total: count() }).from(organizations),
+      db.select({ total: count() }).from(gists),
+    ]);
 
   return c.json({
-    userCount: Number(userCount.count),
-    repoCount: Number(repoCount.count),
-    publicRepoCount: Number(publicRepoCount.count),
-    privateRepoCount: Number(privateRepoCount.count),
-    adminCount: Number(adminCount.count),
-    moderatorCount: Number(moderatorCount.count),
-    orgCount: Number(orgCount.count),
-    issueCount: Number(issueCount.count),
-    openIssueCount: Number(openIssueCount.count),
-    prCount: Number(prCount.count),
-    openPrCount: Number(openPrCount.count),
-    gistCount: Number(gistCount.count),
-    recentUsers: Number(recentUsers.count),
-    recentRepos: Number(recentRepos.count),
+    userCount: Number(userStats.total),
+    repoCount: Number(repoStats.total),
+    publicRepoCount: Number(repoStats.public),
+    privateRepoCount: Number(repoStats.private),
+    adminCount: Number(userStats.admins),
+    moderatorCount: Number(userStats.moderators),
+    orgCount: Number(orgStats.total),
+    issueCount: Number(issueStats.total),
+    openIssueCount: Number(issueStats.open),
+    prCount: Number(prStats.total),
+    openPrCount: Number(prStats.open),
+    gistCount: Number(gistStats.total),
+    recentUsers: Number(userStats.recent),
+    recentRepos: Number(repoStats.recent),
   });
 });
 
@@ -466,12 +462,15 @@ app.post("/api/admin/utils/cleanup-unactivated-accounts", async (c) => {
           );
 
   let deleted = 0;
-  for (const u of toDelete) {
+  if (toDelete.length) {
     try {
-      await db.delete(users).where(eq(users.id, u.id));
-      deleted++;
+      const removed = await db
+        .delete(users)
+        .where(inArray(users.id, toDelete.map((u) => u.id)))
+        .returning({ id: users.id });
+      deleted = removed.length;
     } catch (err) {
-      console.error(`[Admin Utils] Failed to delete unactivated user ${u.id}:`, err);
+      console.error(`[Admin Utils] Failed to delete unactivated users:`, err);
     }
   }
 
@@ -658,11 +657,13 @@ app.delete("/api/admin/users/:id", async (c) => {
   }
 
   // Remove non-cascading references to this user before deleting.
-  await db.update(issues).set({ closedById: null }).where(eq(issues.closedById, id));
-  await db
-    .update(pullRequests)
-    .set({ mergedById: null, closedById: null })
-    .where(or(eq(pullRequests.mergedById, id), eq(pullRequests.closedById, id)));
+  await Promise.all([
+    db.update(issues).set({ closedById: null }).where(eq(issues.closedById, id)),
+    db
+      .update(pullRequests)
+      .set({ mergedById: null, closedById: null })
+      .where(or(eq(pullRequests.mergedById, id), eq(pullRequests.closedById, id))),
+  ]);
 
   // Delete owned repositories explicitly so their git storage is cleaned up.
   const userRepos = await db.query.repositories.findMany({
@@ -1068,24 +1069,21 @@ app.patch("/api/admin/settings", async (c) => {
   const actor = c.get("user")!;
   const body = await c.req.json();
 
-  for (const [key, value] of Object.entries(body)) {
+  const settingEntries = Object.entries(body);
+  if (settingEntries.length) {
     await db
       .insert(systemSettings)
-      .values({
-        key,
-        value,
-        updatedBy: actor.id,
-      })
+      .values(settingEntries.map(([key, value]) => ({ key, value, updatedBy: actor.id })))
       .onConflictDoUpdate({
         target: systemSettings.key,
         set: {
-          value,
+          value: sql`excluded.value`,
           updatedBy: actor.id,
           updatedAt: new Date(),
         },
       });
 
-    await appCache.invalidateSystemSetting(key);
+    await Promise.all(settingEntries.map(([key]) => appCache.invalidateSystemSetting(key)));
   }
 
   await logAuditEvent(

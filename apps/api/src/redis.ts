@@ -144,6 +144,7 @@ export const CACHE_TTL = {
   platformStats: 60,
   systemSetting: 30,
   profileResolve: 60 * 2,
+  accessFacts: 60,
 } as const;
 
 function cacheKey(type: string, ...parts: string[]): string {
@@ -228,6 +229,7 @@ export const appCache = {
   platformStatsKey: () => cacheKey('platform-stats'),
   systemSettingKey: (key: string) => cacheKey('system', key),
   profileResolveKey: (username: string) => cacheKey('profile-resolve', username),
+  accessKey: (repoId: string, userId: string) => cacheKey('access', repoId, userId),
 
   async invalidateUser(userId: string): Promise<void> {
     await deleteCache(appCache.userKey(userId));
@@ -247,6 +249,16 @@ export const appCache = {
 
   async invalidateProfileResolve(username: string): Promise<void> {
     await deleteCache(appCache.profileResolveKey(username));
+  },
+
+  /** Invalidate a single user's cached access facts for one repo. */
+  async invalidateAccess(repoId: string, userId: string): Promise<void> {
+    await deleteCache(appCache.accessKey(repoId, userId));
+  },
+
+  /** Invalidate all cached access facts for a repo (e.g. on collaborator changes). */
+  async invalidateRepoAccess(repoId: string): Promise<void> {
+    await deleteCachePattern(cacheKey('access', repoId, '*'));
   },
 };
 
