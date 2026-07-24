@@ -13,7 +13,6 @@ ENV API_URL=$API_URL
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_DATABUDDY_CLIENT_ID=$VITE_DATABUDDY_CLIENT_ID
 ENV WEB_URL=$WEB_URL
-ENV NODE_ENV=production
 ENV PROD=true
 
 COPY package.json bun.lock ./
@@ -28,6 +27,8 @@ COPY packages/lib/package.json ./packages/lib/
 COPY packages/hooks/package.json ./packages/hooks/
 
 RUN bun install --frozen-lockfile
+
+ENV NODE_ENV=production
 
 COPY packages ./packages
 COPY apps/web ./apps/web
