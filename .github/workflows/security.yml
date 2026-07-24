@@ -11,7 +11,7 @@ jobs:
     name: API security tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.14'
@@ -26,7 +26,7 @@ jobs:
     name: Lint and build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.14'
@@ -43,7 +43,7 @@ jobs:
     name: bun audit (blocking high/critical runtime)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.14'
@@ -98,7 +98,7 @@ jobs:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
       - name: Gitleaks
