@@ -1,0 +1,70 @@
+name: Security and quality
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  api-tests:
+    name: API security tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.5"
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: API unit tests
+        run: cd apps/api && bun test src/test
+      - name: Web security unit tests
+        run: |
+          cd apps/web && bun test lib/security-headers.test.ts lib/safe-html.test.ts
+
+  lint-build:
+    name: Lint and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.5"
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Lint
+        run: bun run lint
+        continue-on-error: true
+      - name: Build API
+        run: cd apps/api && bun run build
+      - name: Build web
+        run: cd apps/web && bun run build
+        continue-on-error: true
+
+  dependency-audit:
+    name: bun audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.5"
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Audit
+        run: bun audit
+        continue-on-error: true
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true

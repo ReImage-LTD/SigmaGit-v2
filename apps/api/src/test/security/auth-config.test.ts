@@ -24,8 +24,9 @@ describe('settings security (source)', () => {
   const settingsSrc = readFileSync(join(import.meta.dir, '../../routes/settings.ts'), 'utf8');
 
   it('requires password for email change and account delete', () => {
-    expect(settingsSrc).toContain('Password is required to change email');
-    expect(settingsSrc).toContain('Password is required to delete account');
+    expect(settingsSrc).toContain('updateEmailBodySchema');
+    expect(settingsSrc).toContain('deleteAccountBodySchema');
+    expect(settingsSrc).toContain('zValidator');
     expect(settingsSrc).toContain('emailVerified: false');
   });
 

@@ -6,6 +6,10 @@ import { filterAccessibleRepos } from "../lib/access";
 import { parseLimit, parseOffset } from "../lib/validation";
 import { logAuditEvent } from "./admin";
 import { randomUUID } from "crypto";
+import { appCache } from "../redis";
+import { z } from "zod";
+import { formatZodError } from "../middleware/validate";
+import { logSecurityEvent } from "../security/audit";
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -201,12 +205,21 @@ app.get("/api/organizations/:org/members", async (c) => {
   return c.json({ members });
 });
 
+const orgMemberRoleSchema = z
+  .object({
+    role: z.enum(["owner", "admin", "member"]),
+  })
+  .strict();
+
 app.put("/api/organizations/:org/members/:username", requireAuth, async (c) => {
   const user = c.get("user")!;
   const orgName = c.req.param("org");
   const username = c.req.param("username");
-  const body = await c.req.json();
-  const { role } = body;
+  const parsed = orgMemberRoleSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return c.json(formatZodError(parsed.error), 400);
+  }
+  const { role } = parsed.data;
 
   const [org] = await db
     .select()
@@ -244,6 +257,7 @@ app.put("/api/organizations/:org/members/:username", requireAuth, async (c) => {
       set: { role },
     });
 
+  await appCache.invalidateUserAccess(targetUser.id);
   await logAuditEvent(
     user.id,
     "org.member.update",
@@ -252,6 +266,14 @@ app.put("/api/organizations/:org/members/:username", requireAuth, async (c) => {
     { username, role },
     c.req.header("x-forwarded-for") || c.req.header("x-real-ip")
   );
+  logSecurityEvent({
+    action: "org.role_change",
+    actorId: user.id,
+    targetType: "user",
+    targetId: targetUser.id,
+    outcome: "success",
+    meta: { org: org.name, role },
+  });
 
   return c.json({ success: true });
 });
@@ -298,6 +320,7 @@ app.delete("/api/organizations/:org/members/:username", requireAuth, async (c) =
       )
     );
 
+  await appCache.invalidateUserAccess(targetUser.id);
   await logAuditEvent(
     user.id,
     "org.member.remove",
@@ -306,6 +329,14 @@ app.delete("/api/organizations/:org/members/:username", requireAuth, async (c) =
     { username },
     c.req.header("x-forwarded-for") || c.req.header("x-real-ip")
   );
+  logSecurityEvent({
+    action: "org.member_remove",
+    actorId: user.id,
+    targetType: "user",
+    targetId: targetUser.id,
+    outcome: "success",
+    meta: { org: org.name },
+  });
 
   return c.json({ success: true });
 });
@@ -587,6 +618,7 @@ app.put("/api/organizations/:org/teams/:team/members", requireAuth, async (c) =>
     })
     .onConflictDoNothing();
 
+  await appCache.invalidateUserAccess(targetUser.id);
   await logAuditEvent(
     user.id,
     "team.member.add",
@@ -646,6 +678,7 @@ app.delete("/api/organizations/:org/teams/:team/members/:username", requireAuth,
     .delete(teamMembers)
     .where(and(eq(teamMembers.teamId, team.id), eq(teamMembers.userId, targetUser.id)));
 
+  await appCache.invalidateUserAccess(targetUser.id);
   await logAuditEvent(
     user.id,
     "team.member.remove",
@@ -720,6 +753,7 @@ app.put("/api/organizations/:org/teams/:team/repos/:repo", requireAuth, async (c
       set: { permission },
     });
 
+  await appCache.invalidateRepoAccess(repository.id);
   await logAuditEvent(
     user.id,
     "team.repo.add",
@@ -783,6 +817,7 @@ app.delete("/api/organizations/:org/teams/:team/repos/:repo", requireAuth, async
     .delete(teamRepositories)
     .where(and(eq(teamRepositories.teamId, team.id), eq(teamRepositories.repositoryId, repository.id)));
 
+  await appCache.invalidateRepoAccess(repository.id);
   await logAuditEvent(
     user.id,
     "team.repo.remove",

@@ -1,6 +1,12 @@
 /**
- * Avatar upload validation: MIME allowlist, magic-byte checks, safe extensions.
+ * Avatar upload validation: MIME allowlist, magic-byte checks, safe extensions,
+ * and pixel-dimension limits (pixel-bomb mitigation without native codecs).
  */
+
+import {
+  dimensionsWithinAvatarLimits,
+  readImageDimensions,
+} from './image-dimensions';
 
 export const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -109,6 +115,17 @@ export function validateAvatarUpload(
         error: 'File content does not match declared image type',
       };
     }
+  }
+
+  const dims = readImageDimensions(bytes, detected);
+  if (!dims) {
+    return { ok: false, error: 'Unable to read image dimensions' };
+  }
+  if (!dimensionsWithinAvatarLimits(dims)) {
+    return {
+      ok: false,
+      error: 'Image dimensions must be between 1 and 4096 pixels',
+    };
   }
 
   return {

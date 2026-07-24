@@ -260,6 +260,12 @@ export const appCache = {
   async invalidateRepoAccess(repoId: string): Promise<void> {
     await deleteCachePattern(cacheKey('access', repoId, '*'));
   },
+
+  /** Invalidate all cached access facts for a user across repos (org/team membership). */
+  async invalidateUserAccess(userId: string): Promise<void> {
+    // Keys are access:{repoId}:{userId}
+    await deleteCachePattern(cacheKey('access', '*', userId));
+  },
 };
 
 export const repoCache = {

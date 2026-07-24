@@ -1,10 +1,18 @@
 import { Hono } from "hono";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, sql } from "drizzle-orm";
 import { getAuth, verifyCredentials } from "../auth";
-import { db, users, verifications, accounts } from "@sigmagit/db";
+import { db, users, verifications, accounts, sessions } from "@sigmagit/db";
 import { sendPasswordResetEmail, sendVerificationEmail } from "../email";
 import { isPasswordCompromised } from "../security/pwned";
 import { authRateLimitOnFailure } from "../middleware/rate-limit";
+import { generateOpaqueToken, hashToken } from "../security/token-hash";
+import { validatePassword } from "@sigmagit/lib";
+import { logSecurityEvent } from "../security/audit";
+import {
+  getValidated,
+  zValidator,
+} from "../middleware/validate";
+import { z } from "zod";
 
 const app = new Hono();
 
@@ -15,26 +23,33 @@ app.use("/api/auth/forgot-password", authRateLimitOnFailure);
 app.use("/api/auth/reset-password", authRateLimitOnFailure);
 app.use("/api/auth/resend-verification", authRateLimitOnFailure);
 
-function generateToken(): string {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return Array.from(array, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
+const emailBodySchema = z
+  .object({
+    email: z.string().trim().email().max(254),
+  })
+  .strict();
+
+const resetPasswordBodySchema = z
+  .object({
+    token: z.string().min(1).max(512),
+    password: z.string().min(8).max(128),
+  })
+  .strict();
 
 app.post("/api/auth/verify-credentials", async (c) => {
   const response = await verifyCredentials(c.req.raw);
   return response;
 });
 
-app.post("/api/auth/forgot-password", async (c) => {
+app.post(
+  "/api/auth/forgot-password",
+  zValidator("json", emailBodySchema),
+  async (c) => {
   try {
-    const body = await c.req.json<{ email?: string }>();
-    const email = body?.email?.toLowerCase().trim();
+    const { email: rawEmail } = getValidated<{ email: string }>(c, "json");
+    const email = rawEmail.toLowerCase().trim();
 
-    if (!email || !email.includes("@")) {
-      return c.json({ error: "Valid email is required" }, 400);
-    }
-
+    // Always return success to resist account enumeration.
     const user = await db.query.users.findFirst({
       where: eq(users.email, email),
     });
@@ -43,7 +58,8 @@ app.post("/api/auth/forgot-password", async (c) => {
       return c.json({ success: true });
     }
 
-    const token = generateToken();
+    const token = generateOpaqueToken();
+    const tokenHash = hashToken(token);
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
     await db.delete(verifications).where(
@@ -53,11 +69,18 @@ app.post("/api/auth/forgot-password", async (c) => {
     await db.insert(verifications).values({
       id: crypto.randomUUID(),
       identifier: `password-reset:${email}`,
-      value: token,
+      value: tokenHash,
       expiresAt,
     });
 
     await sendPasswordResetEmail(email, token, user.username);
+
+    logSecurityEvent({
+      action: "auth.password_reset",
+      actorId: user.id,
+      outcome: "success",
+      meta: { stage: "requested" },
+    });
 
     return c.json({ success: true });
   } catch (err) {
@@ -66,17 +89,16 @@ app.post("/api/auth/forgot-password", async (c) => {
   }
 });
 
-app.post("/api/auth/reset-password", async (c) => {
+app.post(
+  "/api/auth/reset-password",
+  zValidator("json", resetPasswordBodySchema),
+  async (c) => {
   try {
-    const body = await c.req.json<{ token?: string; password?: string }>();
-    const { token, password } = body || {};
+    const { token, password } = getValidated<{ token: string; password: string }>(c, "json");
 
-    if (!token || typeof token !== "string") {
-      return c.json({ error: "Token is required" }, 400);
-    }
-
-    if (!password || typeof password !== "string" || password.length < 8) {
-      return c.json({ error: "Password must be at least 8 characters" }, 400);
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.valid) {
+      return c.json({ error: passwordValidation.error }, 400);
     }
 
     if (await isPasswordCompromised(password)) {
@@ -89,13 +111,21 @@ app.post("/api/auth/reset-password", async (c) => {
       );
     }
 
-    const verification = await db.query.verifications.findFirst({
-      where: and(
-        eq(verifications.value, token),
-        gt(verifications.expiresAt, new Date())
-      ),
-    });
+    const tokenHash = hashToken(token);
 
+    // Atomic consume: delete matching hash row and return it.
+    const consumed = await db
+      .delete(verifications)
+      .where(
+        and(
+          eq(verifications.value, tokenHash),
+          gt(verifications.expiresAt, new Date()),
+          sql`${verifications.identifier} LIKE 'password-reset:%'`
+        )
+      )
+      .returning();
+
+    const verification = consumed[0];
     if (!verification || !verification.identifier.startsWith("password-reset:")) {
       return c.json({ error: "Invalid or expired token" }, 400);
     }
@@ -107,12 +137,13 @@ app.post("/api/auth/reset-password", async (c) => {
     });
 
     if (!user) {
-      return c.json({ error: "User not found" }, 404);
+      // Token already consumed; do not reveal user missing differently.
+      return c.json({ error: "Invalid or expired token" }, 400);
     }
 
     const hashedPassword = await Bun.password.hash(password, {
       algorithm: "bcrypt",
-      cost: 10,
+      cost: 12,
     });
 
     await db
@@ -120,7 +151,22 @@ app.post("/api/auth/reset-password", async (c) => {
       .set({ password: hashedPassword, updatedAt: new Date() })
       .where(eq(accounts.userId, user.id));
 
-    await db.delete(verifications).where(eq(verifications.id, verification.id));
+    // Revoke all sessions after password reset.
+    await db.delete(sessions).where(eq(sessions.userId, user.id));
+
+    try {
+      const { closeUserConnections } = await import("../websocket");
+      closeUserConnections(user.id, "password_reset");
+    } catch {
+      /* ignore */
+    }
+
+    logSecurityEvent({
+      action: "auth.password_reset",
+      actorId: user.id,
+      outcome: "success",
+      meta: { stage: "completed" },
+    });
 
     return c.json({ success: true });
   } catch (err) {
@@ -129,28 +175,25 @@ app.post("/api/auth/reset-password", async (c) => {
   }
 });
 
-app.post("/api/auth/resend-verification", async (c) => {
+app.post(
+  "/api/auth/resend-verification",
+  zValidator("json", emailBodySchema),
+  async (c) => {
   try {
-    const body = await c.req.json<{ email?: string }>();
-    const email = body?.email?.toLowerCase().trim();
-
-    if (!email || !email.includes("@")) {
-      return c.json({ error: "Valid email is required" }, 400);
-    }
+    const { email: rawEmail } = getValidated<{ email: string }>(c, "json");
+    const email = rawEmail.toLowerCase().trim();
 
     const user = await db.query.users.findFirst({
       where: eq(users.email, email),
     });
 
-    if (!user) {
+    // Enumeration-resistant success
+    if (!user || user.emailVerified) {
       return c.json({ success: true });
     }
 
-    if (user.emailVerified) {
-      return c.json({ success: true });
-    }
-
-    const token = generateToken();
+    const token = generateOpaqueToken();
+    const tokenHash = hashToken(token);
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     await db.delete(verifications).where(
@@ -160,7 +203,7 @@ app.post("/api/auth/resend-verification", async (c) => {
     await db.insert(verifications).values({
       id: crypto.randomUUID(),
       identifier: `email-verification:${email}`,
-      value: token,
+      value: tokenHash,
       expiresAt,
     });
 
@@ -181,13 +224,20 @@ app.get("/api/auth/verify-email", async (c) => {
       return c.json({ error: "Token is required" }, 400);
     }
 
-    const verification = await db.query.verifications.findFirst({
-      where: and(
-        eq(verifications.value, token),
-        gt(verifications.expiresAt, new Date())
-      ),
-    });
+    const tokenHash = hashToken(token);
 
+    const consumed = await db
+      .delete(verifications)
+      .where(
+        and(
+          eq(verifications.value, tokenHash),
+          gt(verifications.expiresAt, new Date()),
+          sql`${verifications.identifier} LIKE 'email-verification:%'`
+        )
+      )
+      .returning();
+
+    const verification = consumed[0];
     if (!verification || !verification.identifier.startsWith("email-verification:")) {
       return c.json({ error: "Invalid or expired token" }, 400);
     }
@@ -199,7 +249,11 @@ app.get("/api/auth/verify-email", async (c) => {
       .set({ emailVerified: true, updatedAt: new Date() })
       .where(eq(users.email, email));
 
-    await db.delete(verifications).where(eq(verifications.id, verification.id));
+    logSecurityEvent({
+      action: "auth.email_verified",
+      outcome: "success",
+      meta: { emailDomain: email.split("@")[1] ?? null },
+    });
 
     return c.json({ success: true });
   } catch (err) {

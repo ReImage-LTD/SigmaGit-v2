@@ -3,7 +3,6 @@ import {
   clearWsTicketsForTests,
   consumeWsTicket,
   issueWsTicket,
-  peekWsTicketForTests,
 } from '../../security/ws-ticket';
 
 describe('ws-ticket', () => {
@@ -14,22 +13,24 @@ describe('ws-ticket', () => {
   it('issues and consumes a ticket once', () => {
     const ticket = issueWsTicket('user-1', 'session-1', 30_000);
     expect(ticket.length).toBeGreaterThan(20);
-    expect(peekWsTicketForTests(ticket)?.userId).toBe('user-1');
+    expect(ticket.split('.').length).toBe(5);
 
     const first = consumeWsTicket(ticket);
-    expect(first).toEqual({
-      userId: 'user-1',
-      sessionId: 'session-1',
-      expiresAt: expect.any(Number),
-    });
+    expect(first?.userId).toBe('user-1');
+    expect(first?.sessionId).toBe('session-1');
+    expect(typeof first?.expiresAt).toBe('number');
 
     const second = consumeWsTicket(ticket);
     expect(second).toBeNull();
   });
 
-  it('rejects empty tickets', () => {
+  it('rejects empty tickets and tampering', () => {
     expect(consumeWsTicket('')).toBeNull();
     expect(consumeWsTicket('unknown')).toBeNull();
+    const ticket = issueWsTicket('user-1', 'session-1', 30_000);
+    const parts = ticket.split('.');
+    parts[0] = 'other-user';
+    expect(consumeWsTicket(parts.join('.'))).toBeNull();
   });
 
   it('rejects expired tickets', async () => {

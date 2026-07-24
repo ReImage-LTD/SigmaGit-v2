@@ -85,11 +85,52 @@ async function getOrgMemberRole(
 
 type OrgRole = 'owner' | 'admin' | 'member';
 
-type RepoAccessFacts = {
+export type RepoAccessFacts = {
   collaboratorPermission: RepoPermission | null;
   orgRole: OrgRole | null;
   teamPermission: RepoPermission | null;
 };
+
+/**
+ * Pure access decision for unit tests / table-driven coverage.
+ * Mirrors canAccessRepository once membership facts are resolved.
+ */
+export function evaluateRepoAccessFromFacts(
+  repo: Repository,
+  user: AccessUser,
+  facts: RepoAccessFacts | null,
+  writeRequired = false
+): boolean {
+  if (user?.role === 'admin' && user?.id) {
+    if (!writeRequired) return true;
+    if (user.id === repo.ownerId) return true;
+    return (
+      facts?.collaboratorPermission != null &&
+      hasWritePermission(facts.collaboratorPermission)
+    );
+  }
+
+  if (repo.visibility === 'public' && !writeRequired) return true;
+  if (!user?.id) return false;
+  if (user.id === repo.ownerId) return true;
+  if (!facts) return false;
+
+  if (repo.organizationId) {
+    const role = facts.orgRole;
+    if (role === 'owner' || role === 'admin') return true;
+    if (role === 'member' && repo.visibility === 'public' && !writeRequired) return true;
+  }
+
+  if (facts.collaboratorPermission != null) {
+    return satisfiesAccess(facts.collaboratorPermission, writeRequired);
+  }
+
+  if (facts.teamPermission != null) {
+    return satisfiesAccess(facts.teamPermission, writeRequired);
+  }
+
+  return false;
+}
 
 /**
  * Resolve (and cache) the membership-derived access facts for a single

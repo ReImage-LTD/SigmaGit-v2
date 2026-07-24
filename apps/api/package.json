@@ -21,15 +21,16 @@
     "better-auth": "^1.6.13",
     "discord-interactions": "^4.4.0",
     "discord.js": "^14.26.4",
-    "drizzle-orm": "^0.45.1",
-    "hono": "^4.12.23",
+    "drizzle-orm": "0.45.2",
+    "hono": "^4.12.32",
     "isomorphic-git": "^1.38.3",
-    "nodemailer": "^8.0.10",
+    "nodemailer": "^9.0.3",
     "nostr-tools": "^2.23.5",
     "postgres": "^3.4.9",
     "rate-limiter-flexible": "^10.0.1",
     "redis": "^5.12.1",
-    "resend": "^4.8.0"
+    "resend": "^4.8.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

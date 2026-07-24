@@ -17,8 +17,8 @@
     "db:migrate:discord": "bun run migrate.ts"
   },
   "dependencies": {
-    "drizzle-orm": "^0.45.1",
     "dotenv": "^16.6.1",
+    "drizzle-orm": "0.45.2",
     "postgres": "^3.4.9"
   },
   "devDependencies": {

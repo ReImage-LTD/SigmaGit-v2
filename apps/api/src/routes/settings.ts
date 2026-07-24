@@ -7,6 +7,13 @@ import { putObject, deleteObject, deletePrefix, getRepoPrefix } from "../s3";
 import { isPasswordCompromised } from "../security/pwned";
 import { validateAvatarUpload } from "../security/avatar";
 import { verifyUserPassword } from "../security/password-verify";
+import {
+  deleteAccountBodySchema,
+  getValidated,
+  updateEmailBodySchema,
+  updatePasswordBodySchema,
+  zValidator,
+} from "../middleware/validate";
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -173,17 +180,9 @@ app.patch("/api/settings/word-wrap", requireAuth, async (c) => {
   return c.json({ success: true, wordWrap: body.wordWrap });
 });
 
-app.patch("/api/settings/email", requireAuth, async (c) => {
+app.patch("/api/settings/email", requireAuth, zValidator("json", updateEmailBodySchema), async (c) => {
   const user = c.get("user")!;
-  const body = await c.req.json<{ email: string; password?: string }>();
-
-  if (!body.email || typeof body.email !== "string") {
-    return c.json({ error: "Email is required" }, 400);
-  }
-
-  if (!body.password) {
-    return c.json({ error: "Password is required to change email" }, 400);
-  }
+  const body = getValidated<{ email: string; password: string }>(c, "json");
 
   const passwordOk = await verifyUserPassword(user.id, body.password);
   if (!passwordOk) {
@@ -333,12 +332,13 @@ app.patch("/api/settings/social-links", requireAuth, async (c) => {
   return c.json({ success: true });
 });
 
-app.patch("/api/settings/password", requireAuth, async (c) => {
+app.patch(
+  "/api/settings/password",
+  requireAuth,
+  zValidator("json", updatePasswordBodySchema),
+  async (c) => {
   const user = c.get("user")!;
-  const body = await c.req.json<{
-    currentPassword: string;
-    newPassword: string;
-  }>();
+  const body = getValidated<{ currentPassword: string; newPassword: string }>(c, "json");
 
   const account = await db.query.accounts.findFirst({
     where: and(eq(accounts.userId, user.id), eq(accounts.providerId, "credential")),
@@ -361,6 +361,12 @@ app.patch("/api/settings/password", requireAuth, async (c) => {
       },
       400
     );
+  }
+
+  const { validatePassword } = await import("@sigmagit/lib");
+  const passwordValidation = validatePassword(body.newPassword);
+  if (!passwordValidation.valid) {
+    return c.json({ error: passwordValidation.error }, 400);
   }
 
   const newHash = await Bun.password.hash(body.newPassword, { algorithm: "bcrypt", cost: 12 });
@@ -393,21 +399,32 @@ app.patch("/api/settings/password", requireAuth, async (c) => {
 
   await invalidateCachedUser(user.id);
 
+  const { logSecurityEvent } = await import("../security/audit");
+  logSecurityEvent({
+    action: "auth.password_change",
+    actorId: user.id,
+    outcome: "success",
+  });
+
+  // Close sockets for sessions we just deleted (all except current).
+  // Without per-socket session mapping beyond sessionId, close all and let client re-ticket.
+  try {
+    const { closeUserConnections } = await import("../websocket");
+    closeUserConnections(user.id, "password_change");
+  } catch {
+    /* ignore */
+  }
+
   return c.json({ success: true });
 });
 
-app.delete("/api/settings/account", requireAuth, async (c) => {
+app.delete(
+  "/api/settings/account",
+  requireAuth,
+  zValidator("json", deleteAccountBodySchema),
+  async (c) => {
   const user = c.get("user")!;
-  let body: { password?: string } = {};
-  try {
-    body = await c.req.json();
-  } catch {
-    body = {};
-  }
-
-  if (!body.password) {
-    return c.json({ error: "Password is required to delete account" }, 400);
-  }
+  const body = getValidated<{ password: string }>(c, "json");
 
   const passwordOk = await verifyUserPassword(user.id, body.password);
   if (!passwordOk) {

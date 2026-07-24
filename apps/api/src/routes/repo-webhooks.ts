@@ -6,7 +6,14 @@ import { createHmac } from "crypto";
 import { config } from "../config";
 import { canManageRepository } from "../lib/access";
 import { resolveRepositoryWithAccess } from "../lib/repo-helpers";
-import { validateOutboundUrl } from "../security/ssrf";
+import { guardedFetch, validateOutboundUrl } from "../security/ssrf";
+import {
+  getValidated,
+  ownerNameParamSchema,
+  webhookCreateBodySchema,
+  webhookPatchBodySchema,
+  zValidator,
+} from "../middleware/validate";
 
 export type WebhookEvent = "push" | "pull_request" | "issues" | "tag" | "branch";
 
@@ -52,7 +59,13 @@ export async function deliverWebhookEvent(
             return;
           }
 
-          await fetch(hook.url, { method: "POST", headers, body, signal: AbortSignal.timeout(15_000) });
+          await guardedFetch(hook.url, {
+            method: "POST",
+            headers,
+            body,
+            signal: AbortSignal.timeout(15_000),
+            requireHttps: config.isProduction,
+          });
         })
     );
   } catch (error) {
@@ -84,21 +97,21 @@ app.get("/api/repositories/:owner/:name/webhooks", requireAuth, async (c) => {
 
 // ─── POST /api/repositories/:owner/:name/webhooks ────────────────────────────
 
-app.post("/api/repositories/:owner/:name/webhooks", requireAuth, async (c) => {
-  const owner = c.req.param("owner");
-  const name = c.req.param("name");
+app.post(
+  "/api/repositories/:owner/:name/webhooks",
+  requireAuth,
+  zValidator("param", ownerNameParamSchema),
+  zValidator("json", webhookCreateBodySchema),
+  async (c) => {
+  const { owner, name } = getValidated<{ owner: string; name: string }>(c, "param");
   const currentUser = c.get("user")!;
-  const body = await c.req.json<{
+  const body = getValidated<{
     url: string;
     secret?: string;
     events: WebhookEvent[];
     active?: boolean;
     contentType?: "json" | "form";
-  }>();
-
-  if (!body.url || !body.events?.length) {
-    return c.json({ error: "url and events are required" }, 400);
-  }
+  }>(c, "json");
 
   const urlCheck = validateOutboundUrl(body.url, { requireHttps: config.isProduction });
   if (!urlCheck.ok) {
@@ -129,18 +142,22 @@ app.post("/api/repositories/:owner/:name/webhooks", requireAuth, async (c) => {
 
 // ─── PATCH /api/repositories/:owner/:name/webhooks/:hookId ───────────────────
 
-app.patch("/api/repositories/:owner/:name/webhooks/:hookId", requireAuth, async (c) => {
-  const owner = c.req.param("owner");
-  const name = c.req.param("name");
+app.patch(
+  "/api/repositories/:owner/:name/webhooks/:hookId",
+  requireAuth,
+  zValidator("param", ownerNameParamSchema),
+  zValidator("json", webhookPatchBodySchema),
+  async (c) => {
+  const { owner, name } = getValidated<{ owner: string; name: string }>(c, "param");
   const hookId = c.req.param("hookId");
   const currentUser = c.get("user")!;
-  const body = await c.req.json<{
+  const body = getValidated<{
     url?: string;
     secret?: string | null;
     events?: WebhookEvent[];
     active?: boolean;
     contentType?: "json" | "form";
-  }>();
+  }>(c, "json");
 
   const repo = await resolveRepositoryWithAccess(owner, name, currentUser);
   if (!repo) return c.json({ error: "Repository not found" }, 404);
@@ -173,9 +190,12 @@ app.patch("/api/repositories/:owner/:name/webhooks/:hookId", requireAuth, async 
 
 // ─── DELETE /api/repositories/:owner/:name/webhooks/:hookId ──────────────────
 
-app.delete("/api/repositories/:owner/:name/webhooks/:hookId", requireAuth, async (c) => {
-  const owner = c.req.param("owner");
-  const name = c.req.param("name");
+app.delete(
+  "/api/repositories/:owner/:name/webhooks/:hookId",
+  requireAuth,
+  zValidator("param", ownerNameParamSchema),
+  async (c) => {
+  const { owner, name } = getValidated<{ owner: string; name: string }>(c, "param");
   const hookId = c.req.param("hookId");
   const currentUser = c.get("user")!;
 

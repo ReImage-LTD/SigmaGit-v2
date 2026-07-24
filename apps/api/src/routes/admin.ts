@@ -592,7 +592,19 @@ app.get("/api/admin/users/:id", async (c) => {
 app.patch("/api/admin/users/:id", async (c) => {
   const id = c.req.param("id");
   const actor = c.get("user")!;
-  const body = await c.req.json();
+  const raw = await c.req.json().catch(() => ({}));
+  const { z } = await import("zod");
+  const { formatZodError } = await import("../middleware/validate");
+  const schema = z
+    .object({
+      role: z.enum(["user", "admin", "moderator"]).optional(),
+    })
+    .strict();
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    return c.json(formatZodError(parsed.error), 400);
+  }
+  const body = parsed.data;
 
   const existingUser = await db.query.users.findFirst({
     where: eq(users.id, id),
@@ -625,6 +637,18 @@ app.patch("/api/admin/users/:id", async (c) => {
     { changes: body },
     c.req.header("x-forwarded-for") || c.req.header("x-real-ip")
   );
+
+  const { logSecurityEvent } = await import("../security/audit");
+  if (body.role !== undefined) {
+    logSecurityEvent({
+      action: "auth.role_change",
+      actorId: actor.id,
+      targetType: "user",
+      targetId: id,
+      outcome: "success",
+      meta: { role: body.role },
+    });
+  }
 
   return c.json({ success: true });
 });

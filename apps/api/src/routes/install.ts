@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { sql, eq } from "drizzle-orm";
 import { db, users } from "@sigmagit/db";
-import { validateUsername, validatePassword, isValidEmail } from "@sigmagit/lib";
+import { validateUsername, validatePassword } from "@sigmagit/lib";
 import { getAuth } from "../auth";
+import { getValidated, installBodySchema, zValidator } from "../middleware/validate";
 
 const app = new Hono();
 
@@ -24,33 +25,19 @@ function rowAcquired(result: unknown): boolean | null {
 // First-run install: create the initial admin account.
 // Public endpoint, but only works while the instance has zero users.
 // Uses a PostgreSQL advisory lock so concurrent requests cannot all become admin.
-app.post("/api/install", async (c) => {
-  let body: { name?: string; username?: string; email?: string; password?: string };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid request body" }, 400);
-  }
+app.post("/api/install", zValidator("json", installBodySchema), async (c) => {
+  const body = getValidated<typeof installBodySchema._type>(c, "json");
 
-  const name = body.name?.trim();
-  const username = body.username?.trim().toLowerCase();
-  const email = body.email?.trim();
+  const name = body.name.trim();
+  const username = body.username.trim().toLowerCase();
+  const email = body.email.trim();
   const password = body.password;
 
-  if (!name) {
-    return c.json({ error: "Name is required" }, 400);
-  }
-  if (!email || !isValidEmail(email)) {
-    return c.json({ error: "A valid email is required" }, 400);
-  }
-  if (!username) {
-    return c.json({ error: "Username is required" }, 400);
-  }
   const usernameValidation = validateUsername(username);
   if (!usernameValidation.valid) {
     return c.json({ error: usernameValidation.error }, 400);
   }
-  const passwordValidation = validatePassword(password ?? "");
+  const passwordValidation = validatePassword(password);
   if (!passwordValidation.valid) {
     return c.json({ error: passwordValidation.error }, 400);
   }

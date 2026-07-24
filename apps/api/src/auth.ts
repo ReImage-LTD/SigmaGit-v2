@@ -10,23 +10,12 @@ import { APIError } from 'better-auth/api';
 import { betterAuth } from 'better-auth';
 import { getRedisSession } from './redis';
 
+/**
+ * Cookie domain is host-only by default (undefined).
+ * Set COOKIE_DOMAIN explicitly only when sharing cookies across subdomains.
+ */
 function getCookieDomain(): string | undefined {
-  try {
-    const webUrl = getWebUrl();
-    const hostname = new URL(webUrl).hostname;
-
-    const parts = hostname.split('.');
-    if (parts.length >= 2) {
-      const rootDomain = `.${parts.slice(-2).join('.')}`;
-
-      return rootDomain;
-    }
-
-    return undefined;
-  } catch (error) {
-    console.error(`[API] Error getting cookie domain:`, error);
-    return undefined;
-  }
+  return config.cookieDomain;
 }
 
 const BLOCKED_EMAIL_DOMAINS = [
@@ -349,8 +338,13 @@ export const initAuth = async () => {
       trustedOrigins: getTrustedOrigins(),
       emailAndPassword: {
         enabled: true,
-        requireEmailVerification: false,
+        // Prefer verified emails for new accounts. Existing unverified users can
+        // still sign in; sensitive routes may require verification separately.
+        // Full gate uses REQUIRE_EMAIL_VERIFICATION=true when ready for cutover.
+        requireEmailVerification: process.env.REQUIRE_EMAIL_VERIFICATION === 'true',
         sendResetPassword: async ({ user, url, token }, request) => {
+          // Prefer custom /api/auth/forgot-password which stores hashed tokens.
+          // Better-auth built-in reset still used by some clients — hash not available here.
           sendPasswordResetEmail(user.email, token, user.name);
         },
       },
@@ -468,9 +462,10 @@ export const getAuth = () => {
 };
 
 export async function verifyCredentials(request: Request): Promise<Response> {
-  const secret = config.betterAuthSecret;
+  const { secureCompare } = await import('./security/secrets');
+  const secret = config.internalApiSecret;
   if (!secret) {
-    console.error('[API] verify-credentials: missing BETTER_AUTH_SECRET');
+    console.error('[API] verify-credentials: missing INTERNAL_API_SECRET');
     return new Response(JSON.stringify({ error: 'Server misconfigured' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -478,7 +473,7 @@ export async function verifyCredentials(request: Request): Promise<Response> {
   }
 
   const provided = request.headers.get('x-internal-auth');
-  if (!provided || provided !== secret) {
+  if (!secureCompare(provided, secret)) {
     console.warn('[API] verify-credentials: invalid internal auth header');
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,

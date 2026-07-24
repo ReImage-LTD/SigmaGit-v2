@@ -7,6 +7,7 @@ import { codeToHtml } from "shiki";
 import { useTheme } from "tanstack-theme-kit";
 import { CheckCircle2, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { sanitizeShikiHtml, sanitizeUserUrl } from "@/lib/safe-html";
 
 export function CodeViewer({
   content,
@@ -34,7 +35,7 @@ export function CodeViewer({
           lang: language === "text" ? "plaintext" : language,
           theme: theme === "dark" ? "github-dark-default" : "github-light-default",
         });
-        setHighlightedCode(html);
+        setHighlightedCode(sanitizeShikiHtml(html));
       } catch {
         setHighlightedCode(null);
       }
@@ -49,6 +50,17 @@ export function CodeViewer({
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
+            a({ href, children, ...props }) {
+              const safe = sanitizeUserUrl(href);
+              if (!safe) {
+                return <span {...props}>{children}</span>;
+              }
+              return (
+                <a href={safe} rel="noopener noreferrer nofollow" target="_blank" {...props}>
+                  {children}
+                </a>
+              );
+            },
             code({ node, className, children, ...props }) {
               const match = /language-(\w+)/.exec(className || "");
               const lang = match ? match[1] : "";
@@ -99,7 +111,10 @@ export function CodeViewer({
               ))}
             </div>
           )}
-          <div className={cn("flex-1 min-w-0 pl-4 py-2 [&>pre]:bg-transparent!", codeClassName)} dangerouslySetInnerHTML={{ __html: highlightedCode }} />
+          <div
+            className={cn("flex-1 min-w-0 pl-4 py-2 [&>pre]:bg-transparent!", codeClassName)}
+            dangerouslySetInnerHTML={{ __html: sanitizeShikiHtml(highlightedCode) }}
+          />
         </div>
       </div>
     );
@@ -138,7 +153,7 @@ function CodeBlock({ children, language, theme }: { children: string; language: 
           lang: language || "text",
           theme: theme === "dark" ? "github-dark-default" : "github-light-default",
         });
-        setHtml(result);
+        setHtml(sanitizeShikiHtml(result));
       } catch {
         setHtml(null);
       }
@@ -172,7 +187,10 @@ function CodeBlock({ children, language, theme }: { children: string; language: 
       </div>
       <div className="overflow-x-auto">
         {html ? (
-          <div className="p-4 text-sm [&>pre]:bg-transparent! [&>pre]:m-0! [&>pre]:p-0! [&_code]:leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
+          <div
+            className="p-4 text-sm [&>pre]:bg-transparent! [&>pre]:m-0! [&>pre]:p-0! [&_code]:leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: sanitizeShikiHtml(html) }}
+          />
         ) : (
           <pre className="p-4 text-sm">
             <code>{children}</code>

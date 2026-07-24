@@ -5,7 +5,12 @@ import { requireAuth, type AuthVariables } from "../middleware/auth";
 import { parseLimit, parseOffset } from "../lib/validation";
 import { encryptCredential } from "../lib/credential-cipher";
 import { config } from "../config";
-import { outboundUrlError, validateOutboundUrl } from "../security/ssrf";
+import { guardedFetch, outboundUrlError, validateOutboundUrl } from "../security/ssrf";
+import {
+  getValidated,
+  migrationCreateBodySchema,
+  zValidator,
+} from "../middleware/validate";
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -18,9 +23,22 @@ function providerToken(c: { req: { header: (n: string) => string | undefined; qu
   return c.req.header("x-provider-token") || c.req.header("authorization")?.replace(/^Bearer\s+/i, "") || undefined;
 }
 
-app.post("/api/migrations", requireAuth, async (c) => {
+app.post("/api/migrations", requireAuth, zValidator("json", migrationCreateBodySchema), async (c) => {
   const user = c.get("user")!;
-  const body = await c.req.json();
+  const body = getValidated<{
+    source: string;
+    sourceUrl?: string;
+    sourceBaseUrl?: string;
+    sourceOwner?: string;
+    sourceRepo?: string;
+    options?: Record<string, unknown>;
+    credentials?: {
+      authToken?: string;
+      authType?: string;
+      sshKey?: string;
+      sshKeyPassphrase?: string;
+    };
+  }>(c, "json");
   const {
     source,
     sourceUrl,
@@ -224,11 +242,12 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
+    // Provider APIs are public SaaS endpoints; still use guardedFetch for redirects/DNS.
+    return await guardedFetch(url, {
       ...options,
       signal: controller.signal,
+      requireHttps: requireHttpsOutbound(),
     });
-    return res;
   } finally {
     clearTimeout(timeout);
   }

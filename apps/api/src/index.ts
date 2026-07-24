@@ -17,6 +17,7 @@ import { requestIdMiddleware } from "./middleware/request-id";
 import { requestTimeoutMiddleware } from "./middleware/timeout";
 import { compressionMiddleware } from "./middleware/compression";
 import { securityHeadersMiddleware } from "./middleware/security-headers";
+import { csrfMiddleware } from "./middleware/csrf";
 import { sanitizeQueryForLog } from "./lib/log-sanitize";
 import { startMigrationWorker } from "./workers/migration";
 import { startRunnerHealthWorker } from "./workers/runner-health";
@@ -98,6 +99,7 @@ app.use("*", createMiddleware(async (c, next) => {
 }));
 
 app.use("*", authMiddleware);
+app.use("*", csrfMiddleware);
 app.use("*", concurrencyLimiter());
 app.use("*", memoryMiddleware);
 app.use("*", requestSizeMiddleware);

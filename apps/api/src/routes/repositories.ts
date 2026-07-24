@@ -260,13 +260,24 @@ async function getForkedFromInfo(forkedFromId: string | null, currentUserId?: st
 
 app.post("/api/repositories", requireAuth, writeRateLimit, async (c) => {
   const user = c.get("user")!;
-  const body = await c.req.json<{
+  let body: {
     name: string;
     description?: string;
     visibility: RepositoryVisibility;
     organizationId?: string;
     license?: LicenseType;
-  }>();
+  };
+  try {
+    const { createRepositoryBodySchema } = await import("../middleware/validate");
+    const parsed = createRepositoryBodySchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      const { formatZodError } = await import("../middleware/validate");
+      return c.json(formatZodError(parsed.error), 400);
+    }
+    body = parsed.data as typeof body;
+  } catch {
+    return c.json({ error: "Invalid request body" }, 400);
+  }
 
   const normalizedName = body.name.toLowerCase().replace(/ /g, "-");
 
@@ -278,7 +289,7 @@ app.post("/api/repositories", requireAuth, writeRateLimit, async (c) => {
     return c.json({ error: "Invalid repository visibility" }, 400);
   }
 
-  if (body.license && !LICENSES.includes(body.license)) {
+  if (body.license && !LICENSES.includes(body.license as LicenseType)) {
     return c.json({ error: "Unsupported license type" }, 400);
   }
 

@@ -1,17 +1,15 @@
 import { createApiClient } from "@sigmagit/lib";
 import type { ApiClient } from "@sigmagit/hooks";
-import { authClient } from "@/lib/auth-client";
 import { getApiUrl } from "@/lib/utils";
 
+/**
+ * Browser API client uses HttpOnly session cookies (credentials: include).
+ * Do not put session bearer tokens in JavaScript-accessible storage or headers —
+ * that would expand XSS impact. CLI/service clients still use Authorization/API keys.
+ */
 const baseClient = createApiClient({
   baseUrl: getApiUrl() || "",
   getAuthHeaders: async (): Promise<HeadersInit> => {
-    try {
-      const session = await authClient.getSession();
-      if (session.data?.session.token) {
-        return { Authorization: `Bearer ${session.data.session.token}` };
-      }
-    } catch {}
     return {};
   },
   fetchOptions: {
@@ -29,17 +27,11 @@ export const api = {
         throw new Error("API URL not configured");
       }
 
-      const session = await authClient.getSession();
-      const headers: HeadersInit = session.data?.session.token
-        ? { Authorization: `Bearer ${session.data.session.token}` }
-        : {};
-
       const formData = new FormData();
       formData.append("avatar", file);
       const res = await fetch(`${apiUrl}/api/settings/avatar`, {
         method: "POST",
         credentials: "include",
-        headers,
         body: formData,
       });
       if (!res.ok) {

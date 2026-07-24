@@ -23,6 +23,25 @@ export const REGISTRY_MAX_CHUNK_BYTES = 50 * 1024 * 1024; // 50MB per upload chu
 export const REGISTRY_MAX_BLOB_BYTES = 512 * 1024 * 1024; // 512MB total blob
 export const MAX_LOCAL_LIST_KEYS = 10_000;
 
+/** Endpoint-class body caps (bytes). Applied when Content-Length is present. */
+export const BODY_LIMITS = {
+  jsonDefault: 1 * 1024 * 1024, // 1MB JSON APIs
+  avatar: 5 * 1024 * 1024,
+  webhook: 1 * 1024 * 1024,
+  registryChunk: REGISTRY_MAX_CHUNK_BYTES,
+  gitPack: GIT_PUSH_SIZE_LIMIT,
+  absoluteMax: MAX_REQUEST_SIZE,
+} as const;
+
+export function resolveBodyLimitForPath(path: string): number {
+  if (path.includes('git-receive-pack')) return BODY_LIMITS.gitPack;
+  if (path.startsWith('/v2/') || path.includes('/registry')) return BODY_LIMITS.registryChunk;
+  if (path.includes('/avatar') || path.includes('/settings/avatar')) return BODY_LIMITS.avatar;
+  if (path.includes('/webhooks')) return BODY_LIMITS.webhook;
+  if (path.startsWith('/api/')) return BODY_LIMITS.jsonDefault;
+  return BODY_LIMITS.absoluteMax;
+}
+
 export function shouldRejectRequest(): boolean {
   try {
     const usage = process.memoryUsage();
@@ -79,7 +98,8 @@ export function evaluateRequestSizeLimit(options: {
     if (!Number.isFinite(size) || size < 0) {
       return { allowed: false, status: 400, error: 'Invalid Content-Length' };
     }
-    if (size > MAX_REQUEST_SIZE) {
+    const pathLimit = resolveBodyLimitForPath(path);
+    if (size > pathLimit || size > MAX_REQUEST_SIZE) {
       return { allowed: false, status: 413, error: 'Request body too large' };
     }
     if (isGitReceive && size > GIT_PUSH_SIZE_LIMIT) {

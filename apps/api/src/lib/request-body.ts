@@ -46,7 +46,7 @@ export async function readRequestBodyLimited(
     return Buffer.alloc(0);
   }
   if (chunks.length === 1) {
-    return chunks[0];
+    return chunks[0]!;
   }
   return Buffer.concat(chunks);
 }
@@ -59,4 +59,26 @@ export class RequestBodyTooLargeError extends Error {
     super(`Request body too large: ${receivedBytes} bytes (max ${maxBytes})`);
     this.name = 'RequestBodyTooLargeError';
   }
+}
+
+/** Alias used by unit tests and new call sites. */
+export const BodyTooLargeError = RequestBodyTooLargeError;
+
+export async function readBodyLimited(
+  request: Request,
+  maxBytes: number
+): Promise<ArrayBuffer> {
+  const buf = await readRequestBodyLimited(request, maxBytes);
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+}
+
+export async function readJsonLimited<T = unknown>(
+  request: Request,
+  maxBytes: number
+): Promise<T> {
+  const buf = await readRequestBodyLimited(request, maxBytes);
+  if (buf.byteLength === 0) {
+    throw new SyntaxError('Empty body');
+  }
+  return JSON.parse(buf.toString('utf8')) as T;
 }

@@ -2,10 +2,14 @@ import { Hono } from 'hono';
 import { db, repositories, repositoryCollaborators, runners, users, workflowJobs, workflowRuns, workflowSteps } from '@sigmagit/db';
 import { and, eq, isNull, asc, or } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
+import { z } from 'zod';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../middleware/auth';
 import { requireRunnerAuth, type RunnerVariables } from '../middleware/runner-auth';
 import { notifyUsers } from '../websocket';
 import { config } from '../config';
+import { secureCompare } from '../security/secrets';
+import { formatZodError } from '../middleware/validate';
+import { logSecurityEvent } from '../security/audit';
 
 type Variables = AuthVariables & RunnerVariables;
 
@@ -17,8 +21,9 @@ function authorizeRunnerRegistration(c: { req: { header: (name: string) => strin
     return !config.isProduction;
   }
   const authHeader = c.req.header('authorization');
-  if (authHeader?.startsWith('Bearer ') && authHeader.slice(7) === secret) {
-    return true;
+  if (authHeader?.startsWith('Bearer ')) {
+    const provided = authHeader.slice(7);
+    if (secureCompare(provided, secret)) return true;
   }
   const user = c.get('user');
   return user?.role === 'admin';
@@ -26,24 +31,27 @@ function authorizeRunnerRegistration(c: { req: { header: (name: string) => strin
 
 type AuthUser = AuthVariables['user'];
 
+const runnerRegisterSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    labels: z.array(z.string().max(64)).max(32).optional(),
+    os: z.string().max(64).optional(),
+    arch: z.string().max(64).optional(),
+    version: z.string().max(64).optional(),
+  })
+  .strict();
 
 app.post('/api/runners/register', async (c) => {
   if (!authorizeRunnerRegistration(c)) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
 
-  const body = await c.req.json().catch(() => ({}));
-  const { name, labels, os, arch, version } = body as {
-    name?: string;
-    labels?: string[];
-    os?: string;
-    arch?: string;
-    version?: string;
-  };
-
-  if (!name) {
-    return c.json({ error: 'name is required' }, 400);
+  const raw = await c.req.json().catch(() => null);
+  const parsed = runnerRegisterSchema.safeParse(raw ?? {});
+  if (!parsed.success) {
+    return c.json(formatZodError(parsed.error), 400);
   }
+  const { name, labels, os, arch, version } = parsed.data;
 
   const token = `RUNNER_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex')}`;
 
@@ -63,6 +71,13 @@ app.post('/api/runners/register', async (c) => {
     .returning({ id: runners.id });
 
   console.log(`[Runners] Registered runner: ${name} (${runner.id})`);
+  logSecurityEvent({
+    action: 'runner.register',
+    targetType: 'runner',
+    targetId: runner.id,
+    outcome: 'success',
+    meta: { name },
+  });
 
   return c.json({ id: runner.id, token });
 });

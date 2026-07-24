@@ -38,7 +38,7 @@ function signPayload(header: string, payload: string, secret: string): string {
 }
 
 export function issueRegistryToken(claims: Omit<RegistryClaims, "access"> & { access: string[] }): string {
-  const secret = config.betterAuthSecret;
+  const secret = config.registryJwtSecret;
   const header = base64UrlEncode(Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })));
   const exp = Math.floor(Date.now() / 1000) + REGISTRY_TOKEN_TTL_SEC;
   const payload = base64UrlEncode(
@@ -53,7 +53,7 @@ export function verifyRegistryToken(token: string): RegistryClaims | null {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
     const [headerB64, payloadB64, sigB64] = parts;
-    const secret = config.betterAuthSecret;
+    const secret = config.registryJwtSecret;
     const expectedSig = signPayload(headerB64, payloadB64, secret);
     const sigBuf = base64UrlDecode(sigB64);
     const expectedBuf = base64UrlDecode(expectedSig);

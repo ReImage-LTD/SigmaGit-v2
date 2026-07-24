@@ -9,6 +9,7 @@ import {
 } from 'rate-limiter-flexible';
 import { config } from '../config';
 import { getRedisSession } from '../redis';
+import { secureCompare } from '../security/secrets';
 import type { AuthVariables } from './auth';
 
 type RateLimitContext = Context<{ Variables: AuthVariables }>;
@@ -175,9 +176,9 @@ export function resolveRateLimitTier(c: RateLimitContext): RateLimitTier | null 
 
   // Valid internal secret bypasses rate limits for worker-to-API paths only.
   if (path.startsWith('/api/internal/')) {
-    const secret = config.betterAuthSecret;
+    const secret = config.internalApiSecret;
     const provided = c.req.header('x-internal-auth');
-    if (secret && provided && provided === secret) {
+    if (secret && provided && secureCompare(provided, secret)) {
       return null;
     }
     // Unauthenticated internal probes still rate-limited as unauth.

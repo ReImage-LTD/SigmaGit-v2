@@ -4,17 +4,28 @@ import { eq, and, gt } from "drizzle-orm";
 import { consumeWsTicket, issueWsTicket } from "./security/ws-ticket";
 import { Hono } from "hono";
 import { requireAuth, type AuthVariables } from "./middleware/auth";
+import { getAllowedOrigins } from "./config";
 
 type WebSocketData = {
   userId: string;
   sessionId: string;
   timestamp: number;
   lastPing: number;
+  messageCountWindowStart: number;
+  messageCount: number;
 };
 
 const wsConnections = new Map<string, Set<ServerWebSocket<WebSocketData>>>();
 const CONNECTION_TIMEOUT = 30 * 60 * 1000;
 const PING_INTERVAL = 5 * 60 * 1000;
+
+/** Per-user concurrent WS connections */
+export const WS_MAX_CONNECTIONS_PER_USER = 5;
+/** Max inbound message size (bytes) */
+export const WS_MAX_MESSAGE_BYTES = 64 * 1024;
+/** Max messages per window */
+export const WS_MAX_MESSAGES_PER_WINDOW = 120;
+export const WS_MESSAGE_WINDOW_MS = 60_000;
 
 let cleanupInterval: NodeJS.Timeout | null = null;
 
@@ -73,6 +84,43 @@ export function unregisterConnection(userId: string, ws: ServerWebSocket<WebSock
   }
 }
 
+/** Close all sockets for a user (e.g. session revoke / password reset). */
+export function closeUserConnections(userId: string, reason = "session_revoked"): number {
+  const connections = wsConnections.get(userId);
+  if (!connections) return 0;
+  let n = 0;
+  for (const ws of connections) {
+    try {
+      ws.close(4001, reason);
+      n++;
+    } catch {
+      /* ignore */
+    }
+  }
+  wsConnections.delete(userId);
+  return n;
+}
+
+/** Close sockets bound to a specific session id. */
+export function closeSessionConnections(sessionId: string, reason = "session_revoked"): number {
+  let n = 0;
+  for (const [userId, connections] of wsConnections.entries()) {
+    for (const ws of [...connections]) {
+      if (ws.data.sessionId === sessionId) {
+        try {
+          ws.close(4001, reason);
+          connections.delete(ws);
+          n++;
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    if (connections.size === 0) wsConnections.delete(userId);
+  }
+  return n;
+}
+
 export function notifyUser(userId: string, message: object) {
   const connections = wsConnections.get(userId);
   if (connections) {
@@ -102,9 +150,13 @@ export function isUserConnected(userId: string): boolean {
   return wsConnections.has(userId) && wsConnections.get(userId)!.size > 0;
 }
 
+export function isAllowedWsOrigin(origin: string | null): boolean {
+  if (!origin) return false;
+  return getAllowedOrigins().includes(origin);
+}
+
 /**
  * Issue a short-lived single-use ticket for WebSocket upgrade.
- * Clients must not put long-lived session tokens in the URL.
  */
 export const wsTicketRoutes = new Hono<{ Variables: AuthVariables }>();
 
@@ -116,6 +168,11 @@ wsTicketRoutes.post("/api/ws-ticket", requireAuth, async (c) => {
   } | null;
   const sessionId =
     session?.session?.id ?? (typeof session?.id === "string" ? session.id : user.id);
+
+  const existing = wsConnections.get(user.id)?.size ?? 0;
+  if (existing >= WS_MAX_CONNECTIONS_PER_USER) {
+    return c.json({ error: "Too many WebSocket connections" }, 429);
+  }
 
   const ticket = issueWsTicket(user.id, sessionId);
   return c.json({ ticket, expiresIn: 30 });
@@ -131,7 +188,15 @@ export async function handleWebSocketUpgrade(
     return undefined;
   }
 
-  // Prefer short-lived ticket. Legacy session token query is rejected.
+  const origin = request.headers.get("origin");
+  if (origin && !isAllowedWsOrigin(origin)) {
+    return new Response(JSON.stringify({ error: "Origin not allowed" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  // Non-browser clients may omit Origin; ticket auth still required.
+
   const ticket = url.searchParams.get("ticket");
   if (!ticket) {
     return new Response(
@@ -149,7 +214,6 @@ export async function handleWebSocketUpgrade(
       return new Response("Unauthorized", { status: 401 });
     }
 
-    // Confirm the session is still valid at upgrade time.
     const session = await db.query.sessions.findFirst({
       where: and(
         eq(sessions.id, redeemed.sessionId),
@@ -162,7 +226,6 @@ export async function handleWebSocketUpgrade(
       },
     });
 
-    // If session id was a fallback user id (edge case), still allow ticket user.
     const userId = session?.userId ?? redeemed.userId;
     const sessionId = session?.id ?? redeemed.sessionId;
 
@@ -170,9 +233,7 @@ export async function handleWebSocketUpgrade(
       return new Response("Unauthorized", { status: 401 });
     }
 
-    // When we have a real session row mismatch (expired), reject.
     if (!session) {
-      // Ticket may have used session.id — verify user still has any valid session.
       const anySession = await db.query.sessions.findFirst({
         where: and(eq(sessions.userId, redeemed.userId), gt(sessions.expiresAt, new Date())),
         columns: { id: true, userId: true },
@@ -182,13 +243,23 @@ export async function handleWebSocketUpgrade(
       }
     }
 
+    const current = wsConnections.get(userId)?.size ?? 0;
+    if (current >= WS_MAX_CONNECTIONS_PER_USER) {
+      return new Response(JSON.stringify({ error: "Too many connections" }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const upgraded = server.upgrade(request, {
       data: {
         userId,
         sessionId,
         timestamp: Date.now(),
         lastPing: Date.now(),
-      },
+        messageCountWindowStart: Date.now(),
+        messageCount: 0,
+      } satisfies WebSocketData,
     });
 
     if (upgraded) {
@@ -202,6 +273,24 @@ export async function handleWebSocketUpgrade(
   }
 }
 
+function allowMessage(ws: ServerWebSocket<WebSocketData>, raw: string | Buffer): boolean {
+  const size = typeof raw === "string" ? Buffer.byteLength(raw) : raw.byteLength;
+  if (size > WS_MAX_MESSAGE_BYTES) {
+    return false;
+  }
+
+  const now = Date.now();
+  if (now - ws.data.messageCountWindowStart > WS_MESSAGE_WINDOW_MS) {
+    ws.data.messageCountWindowStart = now;
+    ws.data.messageCount = 0;
+  }
+  ws.data.messageCount += 1;
+  if (ws.data.messageCount > WS_MAX_MESSAGES_PER_WINDOW) {
+    return false;
+  }
+  return true;
+}
+
 export const websocketHandlers = {
   open(ws: ServerWebSocket<WebSocketData>) {
     const { userId } = ws.data;
@@ -212,15 +301,35 @@ export const websocketHandlers = {
   },
 
   message(ws: ServerWebSocket<WebSocketData>, message: string | Buffer) {
-    try {
-      const data = JSON.parse(message.toString());
+    if (!allowMessage(ws, message)) {
+      try {
+        ws.close(1009, "message_limit");
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
 
-      if (data.type === "ping") {
+    // Bound JSON parse input
+    const text = typeof message === "string" ? message : message.toString("utf8");
+    if (text.length > WS_MAX_MESSAGE_BYTES) {
+      try {
+        ws.close(1009, "message_too_large");
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
+    try {
+      const data = JSON.parse(text) as { type?: string };
+
+      if (data?.type === "ping") {
         ws.data.lastPing = Date.now();
         ws.send(JSON.stringify({ type: "pong" }));
       }
-    } catch (err) {
-      console.error("[WS] Invalid message:", err);
+    } catch {
+      // Invalid JSON — ignore without throwing
     }
   },
 
