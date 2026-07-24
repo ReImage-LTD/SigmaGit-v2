@@ -16,9 +16,13 @@ import { authMiddleware } from "./middleware/auth";
 import { requestIdMiddleware } from "./middleware/request-id";
 import { requestTimeoutMiddleware } from "./middleware/timeout";
 import { compressionMiddleware } from "./middleware/compression";
+import { securityHeadersMiddleware } from "./middleware/security-headers";
+import { sanitizeQueryForLog } from "./lib/log-sanitize";
 import { startMigrationWorker } from "./workers/migration";
 import { startRunnerHealthWorker } from "./workers/runner-health";
 import "./monitoring";
+
+export { sanitizeQueryForLog };
 
 if (config.redisSessionUrl) {
   const sessionRedis = await getRedisSession();
@@ -49,7 +53,7 @@ const loggingMiddleware = createMiddleware(async (c, next) => {
   const method = c.req.method;
   const path = c.req.path;
   const queryPos = c.req.url.indexOf('?');
-  const query = queryPos >= 0 ? c.req.url.slice(queryPos) : '';
+  const query = queryPos >= 0 ? sanitizeQueryForLog(c.req.url.slice(queryPos)) : '';
 
   await next();
 
@@ -69,16 +73,20 @@ const loggingMiddleware = createMiddleware(async (c, next) => {
 });
 
 app.use("*", requestIdMiddleware);
+app.use("*", securityHeadersMiddleware);
 app.use("*", loggingMiddleware);
 
 app.use("*", createMiddleware(async (c, next) => {
   const origin = c.req.header("origin");
   const allowedOrigins = getAllowedOrigins();
-  const isAllowed = origin && allowedOrigins.includes(origin);
-  const responseOrigin = isAllowed ? origin : (allowedOrigins[0] || "");
+  const isAllowed = Boolean(origin && allowedOrigins.includes(origin));
 
-  c.header("Access-Control-Allow-Origin", responseOrigin);
-  c.header("Access-Control-Allow-Credentials", "true");
+  // Only emit CORS allow headers for permitted origins. Never fall back to the
+  // first configured origin for disallowed/missing Origin (credentialed CSRF).
+  if (isAllowed && origin) {
+    c.header("Access-Control-Allow-Origin", origin);
+    c.header("Access-Control-Allow-Credentials", "true");
+  }
   c.header("Vary", "Origin");
 
   await next();
@@ -115,16 +123,21 @@ export default {
     if (request.method === "OPTIONS") {
       const origin = request.headers.get("origin");
       const allowedOrigins = getAllowedOrigins();
-      const isAllowed = origin && allowedOrigins.includes(origin);
+      const isAllowed = Boolean(origin && allowedOrigins.includes(origin));
+      const headers: Record<string, string> = {
+        "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization, Cookie, x-api-key, x-internal-auth, X-Webhook-Secret, X-Request-Id, X-Provider-Token",
+        "Access-Control-Max-Age": "300",
+        Vary: "Origin",
+      };
+      if (isAllowed && origin) {
+        headers["Access-Control-Allow-Origin"] = origin;
+        headers["Access-Control-Allow-Credentials"] = "true";
+      }
       return new Response(null, {
-        status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": isAllowed ? origin : (allowedOrigins[0] ?? ""),
-          "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization, Cookie, x-internal-auth, X-Webhook-Secret, X-Request-Id",
-          "Access-Control-Allow-Credentials": "true",
-          "Access-Control-Max-Age": "300",
-        },
+        status: isAllowed ? 204 : 403,
+        headers,
       });
     }
 

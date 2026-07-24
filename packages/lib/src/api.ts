@@ -384,7 +384,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
           body: JSON.stringify(data),
         }),
 
-      updateEmail: (data: { email: string }) =>
+      updateEmail: (data: { email: string; password: string }) =>
         apiFetch<{ success: boolean }>("/api/settings/email", {
           method: "PATCH",
           body: JSON.stringify(data),
@@ -398,7 +398,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
 
       updateAvatar: (file: File) => {
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append("avatar", file);
         return apiFetch<{ success: boolean; avatarUrl: string }>("/api/settings/avatar", {
           method: "POST",
           body: formData,
@@ -411,9 +411,10 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
           method: "DELETE",
         }),
 
-      deleteAccount: () =>
+      deleteAccount: (data: { password: string }) =>
         apiFetch<{ success: boolean }>("/api/settings/account", {
           method: "DELETE",
+          body: JSON.stringify(data),
         }),
     },
 
@@ -880,25 +881,30 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
 
       listGitHubRepos: (token: string) =>
         apiFetch<{ repos: Array<{ id: string; fullName: string; private: boolean; defaultBranch?: string; url: string }> }>(
-          `/api/migrations/github/repos?token=${encodeURIComponent(token)}`
+          `/api/migrations/github/repos`,
+          { headers: { "X-Provider-Token": token } }
         ),
 
       listGitLabRepos: (token: string, baseUrl?: string) => {
-        const params = new URLSearchParams({ token });
+        const params = new URLSearchParams();
         if (baseUrl) params.set("baseUrl", baseUrl);
+        const query = params.toString();
         return apiFetch<{ repos: Array<{ id: string; fullName: string; private: boolean; defaultBranch?: string; url: string }> }>(
-          `/api/migrations/gitlab/repos?${params}`
+          `/api/migrations/gitlab/repos${query ? `?${query}` : ""}`,
+          { headers: { "X-Provider-Token": token } }
         );
       },
 
       listGiteaRepos: (token: string, baseUrl: string) =>
         apiFetch<{ repos: Array<{ id: string; fullName: string; private: boolean; defaultBranch?: string; url: string }> }>(
-          `/api/migrations/gitea/repos?token=${encodeURIComponent(token)}&baseUrl=${encodeURIComponent(baseUrl)}`
+          `/api/migrations/gitea/repos?baseUrl=${encodeURIComponent(baseUrl)}`,
+          { headers: { "X-Provider-Token": token } }
         ),
 
       listBitbucketRepos: (token: string) =>
         apiFetch<{ repos: Array<{ id: string; fullName: string; private: boolean; defaultBranch?: string; url: string }> }>(
-          `/api/migrations/bitbucket/repos?token=${encodeURIComponent(token)}`
+          `/api/migrations/bitbucket/repos`,
+          { headers: { "X-Provider-Token": token } }
         ),
     },
 
@@ -1513,25 +1519,30 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
 
         listGitHubRepos: (token: string) =>
           apiFetch<{ repos: Array<{ id: string; fullName: string; private: boolean; defaultBranch?: string; url: string }> }>(
-            `/api/migrations/github/repos?token=${encodeURIComponent(token)}`
+            `/api/migrations/github/repos`,
+            { headers: { "X-Provider-Token": token } }
           ),
 
         listGitLabRepos: (token: string, baseUrl?: string) => {
-          const params = new URLSearchParams({ token });
+          const params = new URLSearchParams();
           if (baseUrl) params.set("baseUrl", baseUrl);
+          const query = params.toString();
           return apiFetch<{ repos: Array<{ id: string; fullName: string; private: boolean; defaultBranch?: string; url: string }> }>(
-            `/api/migrations/gitlab/repos?${params}`
+            `/api/migrations/gitlab/repos${query ? `?${query}` : ""}`,
+            { headers: { "X-Provider-Token": token } }
           );
         },
 
         listGiteaRepos: (token: string, baseUrl: string) =>
           apiFetch<{ repos: Array<{ id: string; fullName: string; private: boolean; defaultBranch?: string; url: string }> }>(
-            `/api/migrations/gitea/repos?token=${encodeURIComponent(token)}&baseUrl=${encodeURIComponent(baseUrl)}`
+            `/api/migrations/gitea/repos?baseUrl=${encodeURIComponent(baseUrl)}`,
+            { headers: { "X-Provider-Token": token } }
           ),
 
         listBitbucketRepos: (token: string) =>
           apiFetch<{ repos: Array<{ id: string; fullName: string; private: boolean; defaultBranch?: string; url: string }> }>(
-            `/api/migrations/bitbucket/repos?token=${encodeURIComponent(token)}`
+            `/api/migrations/bitbucket/repos`,
+            { headers: { "X-Provider-Token": token } }
           ),
       },
 

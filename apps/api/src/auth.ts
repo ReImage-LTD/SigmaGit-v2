@@ -382,7 +382,7 @@ export const initAuth = async () => {
           authenticatorSelection: {
             authenticatorAttachment: undefined,
             residentKey: 'preferred',
-            userVerification: 'preferred',
+            userVerification: 'required',
           },
         }),
       ],
@@ -402,7 +402,8 @@ export const initAuth = async () => {
         },
       },
       advanced: {
-        disableOriginCheck: true,
+        // Enforce Origin/CSRF checks for auth requests against trustedOrigins.
+        disableOriginCheck: false,
         cookiePrefix: config.nodeEnv === 'production' ? 'sigmagit' : 'sigmagit_dev',
         defaultCookieAttributes: {
           domain: getCookieDomain(),

@@ -1,5 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import type { Context } from 'hono';
+import { createHash } from 'node:crypto';
 import {
   RateLimiterRedis,
   RateLimiterMemory,
@@ -8,7 +9,6 @@ import {
 } from 'rate-limiter-flexible';
 import { config } from '../config';
 import { getRedisSession } from '../redis';
-import { config } from '../config';
 import type { AuthVariables } from './auth';
 
 type RateLimitContext = Context<{ Variables: AuthVariables }>;
@@ -119,13 +119,12 @@ function isRunnerHeartbeat(path: string): boolean {
   return /^\/api\/runners\/[^/]+\/heartbeat$/.test(path);
 }
 
-function isExcludedPath(path: string): boolean {
+export function isExcludedPath(path: string): boolean {
   if (path === '/health' || path === '/api/health' || path === '/api/status' || path === '/ws') {
     return true;
   }
-  if (path.startsWith('/api/internal/')) {
-    return true;
-  }
+  // Internal routes still get rate limiting unless they carry valid internal auth
+  // (checked at tier resolution via header). Keep path-level exclusion only for health/ws/git.
   if (isGitProtocolPath(path)) {
     return true;
   }
@@ -135,26 +134,35 @@ function isExcludedPath(path: string): boolean {
   return false;
 }
 
-function hasSessionCookie(c: RateLimitContext): boolean {
-  const cookieHeader = c.req.header('cookie');
-  if (!cookieHeader) return false;
-  return cookieHeader.includes('sigmagit');
+/** Session cookie presence is not auth — only a resolved user is. */
+export function isAuthenticated(c: RateLimitContext): boolean {
+  return Boolean(c.get('user'));
 }
 
-function isAuthenticated(c: RateLimitContext): boolean {
-  const user = c.get('user');
-  if (user) return true;
-  if (c.req.header('x-api-key')) return true;
-  return hasSessionCookie(c);
+export function hasApiKeyHeader(c: RateLimitContext): boolean {
+  const key = c.req.header('x-api-key');
+  return typeof key === 'string' && key.length > 0;
 }
 
+/** Hash API keys before storing as rate-limit keys. */
+export function hashApiKeyForRateLimit(apiKey: string): string {
+  return createHash('sha256').update(apiKey).digest('hex').slice(0, 32);
+}
+
+/**
+ * Resolve client IP. When trustProxy is false, never trust forwarding headers.
+ */
 export function getClientIp(c: RateLimitContext): string {
   if (config.trustProxy) {
     const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
     if (forwarded) return forwarded;
+    const realIp = c.req.header('x-real-ip')?.trim();
+    if (realIp) return realIp;
+    const cf = c.req.header('cf-connecting-ip')?.trim();
+    if (cf) return cf;
   }
 
-  return c.req.header('x-real-ip') || c.req.header('cf-connecting-ip') || 'unknown';
+  return 'unknown';
 }
 
 export function resolveRateLimitTier(c: RateLimitContext): RateLimitTier | null {
@@ -165,8 +173,24 @@ export function resolveRateLimitTier(c: RateLimitContext): RateLimitTier | null 
     return null;
   }
 
+  // Valid internal secret bypasses rate limits for worker-to-API paths only.
+  if (path.startsWith('/api/internal/')) {
+    const secret = config.betterAuthSecret;
+    const provided = c.req.header('x-internal-auth');
+    if (secret && provided && provided === secret) {
+      return null;
+    }
+    // Unauthenticated internal probes still rate-limited as unauth.
+    return 'unauth';
+  }
+
   if (path.startsWith('/api/auth/')) {
     return 'auth';
+  }
+
+  // API key tier when a key is present and user is not resolved via session.
+  if (hasApiKeyHeader(c) && !c.get('user')) {
+    return 'api-key';
   }
 
   if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
@@ -184,7 +208,7 @@ export function resolveRateLimitTier(c: RateLimitContext): RateLimitTier | null 
   return 'unauth';
 }
 
-function getRateLimitKey(c: RateLimitContext, tier: RateLimitTier): string {
+export function getRateLimitKey(c: RateLimitContext, tier: RateLimitTier): string {
   if (tier === 'auth' || tier === 'unauth') {
     return getClientIp(c);
   }
@@ -194,12 +218,9 @@ function getRateLimitKey(c: RateLimitContext, tier: RateLimitTier): string {
     return `user:${user.id}`;
   }
 
-  if (c.req.header('x-api-key')) {
-    return `apikey:${c.req.header('x-api-key')}`;
-  }
-
-  if (hasSessionCookie(c)) {
-    return `session:${getClientIp(c)}`;
+  if (tier === 'api-key' || hasApiKeyHeader(c)) {
+    const raw = c.req.header('x-api-key') || '';
+    return `apikey:${hashApiKeyForRateLimit(raw)}`;
   }
 
   return getClientIp(c);
@@ -306,6 +327,10 @@ function createTierRateLimiter(tier: RateLimitTier, skipPaths: string[] = []) {
     if (result.status === 'limited') {
       return rateLimitExceeded(c, result.res);
     }
+    // Fail closed in production on limiter infrastructure errors.
+    if (result.status === 'error' && config.isProduction) {
+      return c.json({ error: 'Rate limit unavailable, try again later' }, 503);
+    }
 
     await next();
   });
@@ -326,6 +351,9 @@ export const rateLimitMiddleware = createMiddleware(async (c, next) => {
   const result = await consumeTier(c, tier);
   if (result.status === 'limited') {
     return rateLimitExceeded(c, result.res);
+  }
+  if (result.status === 'error' && config.isProduction) {
+    return c.json({ error: 'Rate limit unavailable, try again later' }, 503);
   }
 
   await next();
@@ -353,9 +381,10 @@ export const apiKeyRateLimit = createMiddleware(async (c, next) => {
 
   const limiter = await getLimiter('api-key');
   const tierConfig = RATE_LIMIT_CONFIGS['api-key'];
+  const key = `apikey:${hashApiKeyForRateLimit(apiKey)}`;
 
   try {
-    const res = await limiter.consume(`apikey:${apiKey}`);
+    const res = await limiter.consume(key);
     setRateLimitHeaders(c, res, tierConfig);
     await next();
   } catch (err) {
@@ -366,6 +395,9 @@ export const apiKeyRateLimit = createMiddleware(async (c, next) => {
       return c.json({ error: 'API key rate limit exceeded', retryAfter }, 429);
     }
     console.error('[RateLimit] API key limiter error:', err);
+    if (config.isProduction) {
+      return c.json({ error: 'Rate limit unavailable, try again later' }, 503);
+    }
     await next();
   }
 });
@@ -380,6 +412,9 @@ export function unauthenticatedRateLimit() {
     const result = await consumeTier(c, 'unauth');
     if (result.status === 'limited') {
       return rateLimitExceeded(c, result.res);
+    }
+    if (result.status === 'error' && config.isProduction) {
+      return c.json({ error: 'Rate limit unavailable, try again later' }, 503);
     }
 
     await next();

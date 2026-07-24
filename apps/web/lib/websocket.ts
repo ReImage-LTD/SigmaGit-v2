@@ -10,6 +10,21 @@ type WebSocketMessage = {
 
 type WebSocketState = "connecting" | "connected" | "disconnected" | "error";
 
+async function fetchWsTicket(apiUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${apiUrl}/api/ws-ticket`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { ticket?: string };
+    return data.ticket ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function useWebSocket() {
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
@@ -22,8 +37,8 @@ export function useWebSocket() {
 
   const connect = useCallback(async () => {
     if (
-      wsRef.current?.readyState === WebSocket.OPEN
-      || wsRef.current?.readyState === WebSocket.CONNECTING
+      wsRef.current?.readyState === WebSocket.OPEN ||
+      wsRef.current?.readyState === WebSocket.CONNECTING
     ) {
       return;
     }
@@ -35,8 +50,7 @@ export function useWebSocket() {
 
     try {
       const session = await authClient.getSession();
-      const token = session.data?.session.token;
-      if (!token) {
+      if (!session.data?.session) {
         // Session may not be ready yet; keep retrying in background.
         reconnectTimeoutRef.current = setTimeout(() => {
           connect();
@@ -45,8 +59,17 @@ export function useWebSocket() {
       }
 
       const apiUrl = getApiUrl();
+      const ticket = await fetchWsTicket(apiUrl);
+      if (!ticket) {
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connect();
+        }, 2000);
+        return;
+      }
+
       const wsUrl = apiUrl.replace(/^http/, "ws");
-      const url = `${wsUrl}/ws?token=${token}`;
+      // Short-lived single-use ticket — never put the session token in the URL.
+      const url = `${wsUrl}/ws?ticket=${encodeURIComponent(ticket)}`;
 
       setState("connecting");
       const ws = new WebSocket(url);
@@ -98,7 +121,6 @@ export function useWebSocket() {
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
           const delay = baseReconnectDelay * Math.pow(2, reconnectAttemptsRef.current);
           reconnectAttemptsRef.current++;
-
           reconnectTimeoutRef.current = setTimeout(() => {
             connect();
           }, delay);
@@ -111,7 +133,7 @@ export function useWebSocket() {
 
       wsRef.current = ws;
     } catch (err) {
-      console.error("[WS] Connection error:", err);
+      console.error("[WS] Connect error:", err);
       setState("error");
     }
   }, [queryClient]);
@@ -122,26 +144,19 @@ export function useWebSocket() {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
-
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
-
     setState("disconnected");
   }, []);
 
-  const send = useCallback((message: object) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message));
-    }
-  }, []);
-
   useEffect(() => {
+    connect();
     return () => {
       disconnect();
     };
-  }, [disconnect]);
+  }, [connect, disconnect]);
 
-  return { state, connect, disconnect, send };
+  return { state, connect, disconnect };
 }

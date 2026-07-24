@@ -689,11 +689,11 @@ export type ApiClient = {
     updatePreferences: (data: Partial<UserPreferences>) => Promise<{ success: boolean }>;
     updateWordWrap: (data: { wordWrap: boolean }) => Promise<{ success: boolean; wordWrap: boolean }>;
     updateSocialLinks?: (data: { github?: string; twitter?: string; linkedin?: string; custom?: string[] }) => Promise<{ success: boolean }>;
-    updateEmail: (data: { email: string }) => Promise<{ success: boolean } | UserProfile>;
+    updateEmail: (data: { email: string; password: string }) => Promise<{ success: boolean } | UserProfile>;
     updatePassword?: (data: { currentPassword: string; newPassword: string }) => Promise<{ success: boolean }>;
     updateAvatar: (file: File) => Promise<{ success: boolean; avatarUrl: string }>;
     deleteAvatar: () => Promise<{ success: boolean; avatarUrl: string | null }>;
-    deleteAccount: () => Promise<{ success: boolean }>;
+    deleteAccount: (data: { password: string }) => Promise<{ success: boolean }>;
   };
   issues: {
     list: (owner: string, repo: string, filters?: IssueFilters) => Promise<{ issues: Issue[]; hasMore: boolean }>;

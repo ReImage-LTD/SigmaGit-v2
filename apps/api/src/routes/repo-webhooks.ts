@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 import { db, repositoryWebhooks } from "@sigmagit/db";
 import { eq, and } from "drizzle-orm";
-import { authMiddleware, requireAuth, type AuthVariables } from "../middleware/auth";
+import { requireAuth, type AuthVariables } from "../middleware/auth";
 import { createHmac } from "crypto";
 import { config } from "../config";
 import { canManageRepository } from "../lib/access";
 import { resolveRepositoryWithAccess } from "../lib/repo-helpers";
+import { validateOutboundUrl } from "../security/ssrf";
 
 export type WebhookEvent = "push" | "pull_request" | "issues" | "tag" | "branch";
 
@@ -42,6 +43,13 @@ export async function deliverWebhookEvent(
           if (hook.secret) {
             const sig = createHmac("sha256", hook.secret).update(body).digest("hex");
             headers["X-Hub-Signature-256"] = `sha256=${sig}`;
+          }
+
+          // Defense-in-depth: re-validate destination at delivery time (SSRF).
+          const dest = validateOutboundUrl(hook.url, { requireHttps: config.isProduction });
+          if (!dest.ok) {
+            console.warn(`[Webhook] Skipping delivery to blocked URL: ${dest.error}`);
+            return;
           }
 
           await fetch(hook.url, { method: "POST", headers, body, signal: AbortSignal.timeout(15_000) });
@@ -92,10 +100,9 @@ app.post("/api/repositories/:owner/:name/webhooks", requireAuth, async (c) => {
     return c.json({ error: "url and events are required" }, 400);
   }
 
-  try {
-    new URL(body.url);
-  } catch {
-    return c.json({ error: "Invalid URL" }, 400);
+  const urlCheck = validateOutboundUrl(body.url, { requireHttps: config.isProduction });
+  if (!urlCheck.ok) {
+    return c.json({ error: urlCheck.error || "Invalid URL" }, 400);
   }
 
   const repo = await resolveRepositoryWithAccess(owner, name, currentUser);
@@ -148,7 +155,10 @@ app.patch("/api/repositories/:owner/:name/webhooks/:hookId", requireAuth, async 
 
   const updates: Partial<typeof repositoryWebhooks.$inferInsert> = { updatedAt: new Date() };
   if (body.url !== undefined) {
-    try { new URL(body.url); } catch { return c.json({ error: "Invalid URL" }, 400); }
+    const urlCheck = validateOutboundUrl(body.url, { requireHttps: config.isProduction });
+    if (!urlCheck.ok) {
+      return c.json({ error: urlCheck.error || "Invalid URL" }, 400);
+    }
     updates.url = body.url;
   }
   if ("secret" in body) updates.secret = body.secret ?? null;

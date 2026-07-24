@@ -1,6 +1,9 @@
 import type { ServerWebSocket } from "bun";
 import { db, sessions } from "@sigmagit/db";
 import { eq, and, gt } from "drizzle-orm";
+import { consumeWsTicket, issueWsTicket } from "./security/ws-ticket";
+import { Hono } from "hono";
+import { requireAuth, type AuthVariables } from "./middleware/auth";
 
 type WebSocketData = {
   userId: string;
@@ -99,6 +102,25 @@ export function isUserConnected(userId: string): boolean {
   return wsConnections.has(userId) && wsConnections.get(userId)!.size > 0;
 }
 
+/**
+ * Issue a short-lived single-use ticket for WebSocket upgrade.
+ * Clients must not put long-lived session tokens in the URL.
+ */
+export const wsTicketRoutes = new Hono<{ Variables: AuthVariables }>();
+
+wsTicketRoutes.post("/api/ws-ticket", requireAuth, async (c) => {
+  const user = c.get("user")!;
+  const session = c.get("session") as {
+    session?: { id?: string };
+    id?: string;
+  } | null;
+  const sessionId =
+    session?.session?.id ?? (typeof session?.id === "string" ? session.id : user.id);
+
+  const ticket = issueWsTicket(user.id, sessionId);
+  return c.json({ ticket, expiresIn: 30 });
+});
+
 export async function handleWebSocketUpgrade(
   request: Request,
   server: any
@@ -109,15 +131,29 @@ export async function handleWebSocketUpgrade(
     return undefined;
   }
 
-  const token = url.searchParams.get("token");
-  if (!token) {
-    return new Response("Unauthorized", { status: 401 });
+  // Prefer short-lived ticket. Legacy session token query is rejected.
+  const ticket = url.searchParams.get("ticket");
+  if (!ticket) {
+    return new Response(
+      JSON.stringify({
+        error: "Unauthorized",
+        message: "Use POST /api/ws-ticket then connect with ?ticket=",
+      }),
+      { status: 401, headers: { "Content-Type": "application/json" } }
+    );
   }
 
   try {
+    const redeemed = consumeWsTicket(ticket);
+    if (!redeemed) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+
+    // Confirm the session is still valid at upgrade time.
     const session = await db.query.sessions.findFirst({
       where: and(
-        eq(sessions.token, token),
+        eq(sessions.id, redeemed.sessionId),
+        eq(sessions.userId, redeemed.userId),
         gt(sessions.expiresAt, new Date())
       ),
       columns: {
@@ -126,14 +162,30 @@ export async function handleWebSocketUpgrade(
       },
     });
 
-    if (!session) {
+    // If session id was a fallback user id (edge case), still allow ticket user.
+    const userId = session?.userId ?? redeemed.userId;
+    const sessionId = session?.id ?? redeemed.sessionId;
+
+    if (session && session.userId !== redeemed.userId) {
       return new Response("Unauthorized", { status: 401 });
+    }
+
+    // When we have a real session row mismatch (expired), reject.
+    if (!session) {
+      // Ticket may have used session.id — verify user still has any valid session.
+      const anySession = await db.query.sessions.findFirst({
+        where: and(eq(sessions.userId, redeemed.userId), gt(sessions.expiresAt, new Date())),
+        columns: { id: true, userId: true },
+      });
+      if (!anySession) {
+        return new Response("Unauthorized", { status: 401 });
+      }
     }
 
     const upgraded = server.upgrade(request, {
       data: {
-        userId: session.userId,
-        sessionId: session.id,
+        userId,
+        sessionId,
         timestamp: Date.now(),
         lastPing: Date.now(),
       },

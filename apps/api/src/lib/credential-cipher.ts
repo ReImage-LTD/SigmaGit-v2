@@ -9,37 +9,58 @@ const IV_LEN = 12;
 const AUTH_TAG_LEN = 16;
 const SALT = "sigmagit-migration-credentials-v1";
 const VERSION_PREFIX = "v1.";
+const MIN_SECRET_LEN = 16;
 
-let keyPromise: Promise<Buffer | null> | null = null;
+let keyPromise: Promise<Buffer> | null = null;
+let keyError: Error | null = null;
 
-async function getKey(): Promise<Buffer | null> {
+/** Reset cached key state (tests only). */
+export function resetCredentialCipherForTests(): void {
+  keyPromise = null;
+  keyError = null;
+}
+
+function missingKeyError(): Error {
+  return new Error(
+    "MIGRATION_CREDENTIALS_KEY must be set to a secret of at least 16 characters"
+  );
+}
+
+export function isCredentialKeyConfigured(
+  secret: string | undefined | null = process.env.MIGRATION_CREDENTIALS_KEY
+): boolean {
+  return typeof secret === "string" && secret.length >= MIN_SECRET_LEN;
+}
+
+async function getKey(): Promise<Buffer> {
+  if (keyError) throw keyError;
   if (keyPromise) return keyPromise;
 
   keyPromise = (async () => {
     const secret = process.env.MIGRATION_CREDENTIALS_KEY;
-    if (!secret || secret.length < 16) {
-      if (process.env.NODE_ENV === "production" || process.env.RAILWAY_ENVIRONMENT_NAME) {
-        console.warn(
-          "[CredentialCipher] MIGRATION_CREDENTIALS_KEY not set or too short; credentials will use legacy base64 (not secure)"
-        );
-      }
-      return null;
+    if (!isCredentialKeyConfigured(secret)) {
+      const err = missingKeyError();
+      keyError = err;
+      console.error(
+        "[CredentialCipher] MIGRATION_CREDENTIALS_KEY not set or too short; encryption disabled"
+      );
+      throw err;
     }
-    return (await scryptAsync(secret, SALT, KEY_LEN)) as Buffer;
-  })();
+    return (await scryptAsync(secret!, SALT, KEY_LEN)) as Buffer;
+  })().catch((err) => {
+    keyPromise = null;
+    throw err;
+  });
 
   return keyPromise;
 }
 
 /**
- * Encrypt a credential value for storage. Uses AES-256-GCM when
- * MIGRATION_CREDENTIALS_KEY is set; otherwise falls back to base64 (legacy).
+ * Encrypt a credential value for storage. Requires MIGRATION_CREDENTIALS_KEY.
+ * Fails closed — never stores reversible base64.
  */
 export async function encryptCredential(value: string): Promise<string> {
   const key = await getKey();
-  if (!key) {
-    return Buffer.from(value, "utf-8").toString("base64");
-  }
   const iv = randomBytes(IV_LEN);
   const cipher = createCipheriv(ALGORITHM, key, iv);
   const enc = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
@@ -49,17 +70,13 @@ export async function encryptCredential(value: string): Promise<string> {
 }
 
 /**
- * Decrypt a stored credential. Accepts both "v1." prefixed (AES-GCM) and
- * legacy base64-only values for backward compatibility.
+ * Decrypt a stored credential.
+ * Accepts "v1." AES-GCM payloads. Legacy base64-only values are rejected
+ * unless ALLOW_LEGACY_CREDENTIAL_BASE64=true (temporary migration aid).
  */
 export async function decryptCredential(encrypted: string): Promise<string> {
   if (encrypted.startsWith(VERSION_PREFIX)) {
     const key = await getKey();
-    if (!key) {
-      throw new Error(
-        "Stored credentials are encrypted but MIGRATION_CREDENTIALS_KEY is not set"
-      );
-    }
     const raw = Buffer.from(encrypted.slice(VERSION_PREFIX.length), "base64");
     if (raw.length < IV_LEN + AUTH_TAG_LEN) {
       throw new Error("Invalid encrypted credential payload");
@@ -71,5 +88,15 @@ export async function decryptCredential(encrypted: string): Promise<string> {
     decipher.setAuthTag(authTag);
     return decipher.update(ciphertext) + decipher.final("utf8");
   }
-  return Buffer.from(encrypted, "base64").toString("utf-8");
+
+  if (process.env.ALLOW_LEGACY_CREDENTIAL_BASE64 === "true") {
+    console.warn(
+      "[CredentialCipher] Decrypting legacy base64 credential; re-encrypt at next save"
+    );
+    return Buffer.from(encrypted, "base64").toString("utf-8");
+  }
+
+  throw new Error(
+    "Legacy base64 credentials are disabled; set ALLOW_LEGACY_CREDENTIAL_BASE64=true only during migration"
+  );
 }

@@ -6,6 +6,8 @@ import { mkdir, rm, writeFile, stat } from "fs/promises";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { decryptCredential } from "../lib/credential-cipher";
+import { validateOutboundUrl } from "../security/ssrf";
+import { config } from "../config";
 
 const TEMP_DIR = "/tmp/sigmagit-migrations";
 
@@ -68,6 +70,14 @@ export async function processMigration(migrationId: string) {
 
     const tempRepoPath = join(TEMP_DIR, migrationId);
     await mkdir(tempRepoPath, { recursive: true });
+
+    // SSRF check before any clone (defense in depth vs stored malicious URLs)
+    const sourceCheck = validateOutboundUrl(migration.sourceUrl, {
+      requireHttps: config.isProduction,
+    });
+    if (!sourceCheck.ok) {
+      throw new Error(`Blocked source URL: ${sourceCheck.error}`);
+    }
 
     // Prepare clone URL with authentication
     let cloneUrl = migration.sourceUrl;

@@ -1,10 +1,12 @@
 import { Hono } from "hono";
-import { db, users, repositories, accounts } from "@sigmagit/db";
+import { db, users, repositories, accounts, sessions } from "@sigmagit/db";
 import { eq, ne, and } from "drizzle-orm";
-import { authMiddleware, requireAuth, invalidateCachedUser, type AuthVariables } from "../middleware/auth";
+import { requireAuth, invalidateCachedUser, type AuthVariables } from "../middleware/auth";
 import { appCache } from "../redis";
 import { putObject, deleteObject, deletePrefix, getRepoPrefix } from "../s3";
 import { isPasswordCompromised } from "../security/pwned";
+import { validateAvatarUpload } from "../security/avatar";
+import { verifyUserPassword } from "../security/password-verify";
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -173,7 +175,20 @@ app.patch("/api/settings/word-wrap", requireAuth, async (c) => {
 
 app.patch("/api/settings/email", requireAuth, async (c) => {
   const user = c.get("user")!;
-  const body = await c.req.json<{ email: string }>();
+  const body = await c.req.json<{ email: string; password?: string }>();
+
+  if (!body.email || typeof body.email !== "string") {
+    return c.json({ error: "Email is required" }, 400);
+  }
+
+  if (!body.password) {
+    return c.json({ error: "Password is required to change email" }, 400);
+  }
+
+  const passwordOk = await verifyUserPassword(user.id, body.password);
+  if (!passwordOk) {
+    return c.json({ error: "Password is incorrect" }, 403);
+  }
 
   const existing = await db.query.users.findFirst({
     where: and(eq(users.email, body.email), ne(users.id, user.id)),
@@ -187,10 +202,13 @@ app.patch("/api/settings/email", requireAuth, async (c) => {
     .update(users)
     .set({
       email: body.email,
+      emailVerified: false,
       updatedAt: new Date(),
     })
     .where(eq(users.id, user.id))
     .returning();
+
+  await invalidateCachedUser(user.id);
 
   return c.json(updated);
 });
@@ -204,14 +222,10 @@ app.post("/api/settings/avatar", requireAuth, async (c) => {
     return c.json({ error: "No avatar file provided" }, 400);
   }
 
-  const contentType = file.type;
-  if (!contentType.startsWith("image/")) {
-    return c.json({ error: "File must be an image" }, 400);
-  }
-
   const data = await file.arrayBuffer();
-  if (data.byteLength > 5 * 1024 * 1024) {
-    return c.json({ error: "File size must be less than 5MB" }, 400);
+  const validation = validateAvatarUpload(data, file.type);
+  if (!validation.ok || !validation.mime || !validation.extension) {
+    return c.json({ error: validation.error || "Invalid avatar file" }, 400);
   }
 
   const currentUser = await db.query.users.findFirst({
@@ -229,7 +243,9 @@ app.post("/api/settings/avatar", requireAuth, async (c) => {
     }
   }
 
-  const ext = file.name.split(".").pop() || "png";
+  // Extension and content-type come only from magic-byte detection.
+  const ext = validation.extension;
+  const contentType = validation.mime;
   const key = `avatars/${user.id}.${ext}`;
 
   await putObject(key, Buffer.from(data), contentType);
@@ -357,11 +373,46 @@ app.patch("/api/settings/password", requireAuth, async (c) => {
     })
     .where(eq(accounts.id, account.id));
 
+  // Invalidate all sessions so stolen sessions cannot survive a password change.
+  // Keep the current session so the user is not immediately logged out.
+  const currentSession = c.get("session") as {
+    session?: { id?: string };
+    id?: string;
+  } | null;
+  const currentSessionId =
+    currentSession?.session?.id ??
+    (typeof currentSession?.id === "string" ? currentSession.id : undefined);
+
+  if (currentSessionId) {
+    await db
+      .delete(sessions)
+      .where(and(eq(sessions.userId, user.id), ne(sessions.id, currentSessionId)));
+  } else {
+    await db.delete(sessions).where(eq(sessions.userId, user.id));
+  }
+
+  await invalidateCachedUser(user.id);
+
   return c.json({ success: true });
 });
 
 app.delete("/api/settings/account", requireAuth, async (c) => {
   const user = c.get("user")!;
+  let body: { password?: string } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+
+  if (!body.password) {
+    return c.json({ error: "Password is required to delete account" }, 400);
+  }
+
+  const passwordOk = await verifyUserPassword(user.id, body.password);
+  if (!passwordOk) {
+    return c.json({ error: "Password is incorrect" }, 403);
+  }
 
   const repos = await db.query.repositories.findMany({
     where: eq(repositories.ownerId, user.id),

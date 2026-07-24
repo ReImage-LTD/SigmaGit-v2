@@ -59,23 +59,59 @@ export const memoryMiddleware = createMiddleware(async (c, next) => {
   await next();
 });
 
-export const requestSizeMiddleware = createMiddleware(async (c, next) => {
-  const contentLength = c.req.header('content-length');
+/**
+ * Pure check used by middleware and unit tests.
+ * Rejects oversized Content-Length and non-git chunked bodies without a length
+ * (so clients cannot bypass the 100MB cap via Transfer-Encoding: chunked).
+ */
+export function evaluateRequestSizeLimit(options: {
+  method: string;
+  path: string;
+  contentLength: string | undefined | null;
+  transferEncoding?: string | null;
+}): { allowed: boolean; status?: number; error?: string } {
+  const { path, contentLength, transferEncoding } = options;
+  const isGitReceive = path.includes('git-receive-pack');
+  const te = (transferEncoding || '').toLowerCase();
 
   if (contentLength) {
     const size = parseInt(contentLength, 10);
-
+    if (!Number.isFinite(size) || size < 0) {
+      return { allowed: false, status: 400, error: 'Invalid Content-Length' };
+    }
     if (size > MAX_REQUEST_SIZE) {
-      console.warn(`[Request] Size ${size} exceeds limit ${MAX_REQUEST_SIZE}`);
-      return c.json({ error: 'Request body too large' }, 413);
+      return { allowed: false, status: 413, error: 'Request body too large' };
     }
-
-    const path = c.req.path;
-
-    if (path.includes('git-receive-pack') && size > GIT_PUSH_SIZE_LIMIT) {
-      console.warn(`[Git] Push size ${size} exceeds limit ${GIT_PUSH_SIZE_LIMIT}`);
-      return c.json({ error: 'Git pack too large, maximum is 100MB' }, 413);
+    if (isGitReceive && size > GIT_PUSH_SIZE_LIMIT) {
+      return { allowed: false, status: 413, error: 'Git pack too large, maximum is 100MB' };
     }
+    return { allowed: true };
+  }
+
+  // Chunked bodies without Content-Length can bypass static size checks.
+  // Git receive-pack may stream; all other paths must advertise length.
+  if (te.includes('chunked') && !isGitReceive) {
+    return {
+      allowed: false,
+      status: 411,
+      error: 'Content-Length header is required for chunked requests',
+    };
+  }
+
+  return { allowed: true };
+}
+
+export const requestSizeMiddleware = createMiddleware(async (c, next) => {
+  const result = evaluateRequestSizeLimit({
+    method: c.req.method,
+    path: c.req.path,
+    contentLength: c.req.header('content-length'),
+    transferEncoding: c.req.header('transfer-encoding'),
+  });
+
+  if (!result.allowed) {
+    console.warn(`[Request] Rejected: ${result.error}`);
+    return c.json({ error: result.error }, (result.status ?? 413) as 413);
   }
 
   await next();
@@ -90,7 +126,14 @@ export const responseSizeMiddleware = createMiddleware(async (c, next) => {
     const size = parseInt(responseSize, 10);
 
     if (size > MAX_RESPONSE_SIZE) {
+      // Fail closed for oversized JSON/API responses that advertise length.
       console.warn(`[Response] Size ${size} exceeds limit ${MAX_RESPONSE_SIZE}`);
+      if (!c.req.path.includes('git-upload-pack') && !c.req.path.includes('git-receive-pack')) {
+        c.res = new Response(JSON.stringify({ error: 'Response too large' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
     }
   }
 });

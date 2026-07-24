@@ -1,12 +1,22 @@
 import { Hono } from "hono";
-import { db, repositoryMigrations, repositories, users, migrationCredentials } from "@sigmagit/db";
-import { eq, and, sql, desc } from "drizzle-orm";
-import { authMiddleware, requireAuth, type AuthVariables } from "../middleware/auth";
+import { db, repositoryMigrations, migrationCredentials } from "@sigmagit/db";
+import { eq, and, desc } from "drizzle-orm";
+import { requireAuth, type AuthVariables } from "../middleware/auth";
 import { parseLimit, parseOffset } from "../lib/validation";
-import { encryptCredential, decryptCredential } from "../lib/credential-cipher";
+import { encryptCredential } from "../lib/credential-cipher";
+import { config } from "../config";
+import { outboundUrlError, validateOutboundUrl } from "../security/ssrf";
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
+function requireHttpsOutbound(): boolean {
+  return config.isProduction;
+}
+
+function providerToken(c: { req: { header: (n: string) => string | undefined; query: (n: string) => string | undefined } }): string | undefined {
+  // Prefer header — query tokens leak via logs, proxies, and history.
+  return c.req.header("x-provider-token") || c.req.header("authorization")?.replace(/^Bearer\s+/i, "") || undefined;
+}
 
 app.post("/api/migrations", requireAuth, async (c) => {
   const user = c.get("user")!;
@@ -24,11 +34,27 @@ app.post("/api/migrations", requireAuth, async (c) => {
   // Build the actual source URL based on source type
   let finalSourceUrl = sourceUrl;
   if (source !== "url" && sourceBaseUrl) {
-    // Self-hosted instance
     finalSourceUrl = `${sourceBaseUrl}/${sourceOwner}/${sourceRepo}.git`;
   } else if (source !== "url") {
-    // Default hosted service
     finalSourceUrl = `https://${source}.com/${sourceOwner}/${sourceRepo}.git`;
+  }
+
+  if (!finalSourceUrl || typeof finalSourceUrl !== "string") {
+    return c.json({ error: "sourceUrl is required" }, 400);
+  }
+
+  const sourceCheck = validateOutboundUrl(finalSourceUrl, {
+    requireHttps: requireHttpsOutbound(),
+  });
+  if (!sourceCheck.ok) {
+    return c.json({ error: `Invalid source URL: ${sourceCheck.error}` }, 400);
+  }
+
+  if (sourceBaseUrl) {
+    const baseErr = outboundUrlError(sourceBaseUrl, { requireHttps: requireHttpsOutbound() });
+    if (baseErr) {
+      return c.json({ error: `Invalid sourceBaseUrl: ${baseErr}` }, 400);
+    }
   }
 
   // Create migration record
@@ -49,19 +75,32 @@ app.post("/api/migrations", requireAuth, async (c) => {
     })
     .returning();
 
-  // Store credentials if provided
+  // Store credentials if provided (AES-GCM only; fails closed without key)
   if (credentials && (credentials.authToken || credentials.sshKey)) {
-    await db.insert(migrationCredentials).values({
-      migrationId: migration.id,
-      authToken: credentials.authToken ? await encryptCredential(credentials.authToken) : null,
-      authType: credentials.authType || "token",
-      sshKey: credentials.sshKey ? await encryptCredential(credentials.sshKey) : null,
-      sshKeyPassphrase: credentials.sshKeyPassphrase
-        ? await encryptCredential(credentials.sshKeyPassphrase)
-        : null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    try {
+      await db.insert(migrationCredentials).values({
+        migrationId: migration.id,
+        authToken: credentials.authToken ? await encryptCredential(credentials.authToken) : null,
+        authType: credentials.authType || "token",
+        sshKey: credentials.sshKey ? await encryptCredential(credentials.sshKey) : null,
+        sshKeyPassphrase: credentials.sshKeyPassphrase
+          ? await encryptCredential(credentials.sshKeyPassphrase)
+          : null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    } catch (err) {
+      // Clean up migration if credential encryption fails
+      await db.delete(repositoryMigrations).where(eq(repositoryMigrations.id, migration.id));
+      console.error("[Migrations] Credential encryption failed:", err);
+      return c.json(
+        {
+          error:
+            "Failed to store migration credentials. Ensure MIGRATION_CREDENTIALS_KEY is configured.",
+        },
+        500
+      );
+    }
   }
 
   return c.json({ data: migration });
@@ -107,46 +146,8 @@ app.get("/api/migrations/:id", requireAuth, async (c) => {
   return c.json({ data: migration });
 });
 
-// Get credentials for a migration (internal use only, for worker)
-app.get("/api/migrations/:id/credentials", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
-
-  const [migration] = await db
-    .select()
-    .from(repositoryMigrations)
-    .where(
-      and(
-        eq(repositoryMigrations.id, id),
-        eq(repositoryMigrations.userId, user.id)
-      )
-    );
-
-  if (!migration) {
-    return c.json({ error: "Migration not found" }, 404);
-  }
-
-  const [creds] = await db
-    .select()
-    .from(migrationCredentials)
-    .where(eq(migrationCredentials.migrationId, id));
-
-  if (!creds) {
-    return c.json({ error: "No credentials found" }, 404);
-  }
-
-  // Decrypt credentials for the response
-  return c.json({
-    data: {
-      authType: creds.authType,
-      authToken: creds.authToken ? await decryptCredential(creds.authToken) : null,
-      sshKey: creds.sshKey ? await decryptCredential(creds.sshKey) : null,
-      sshKeyPassphrase: creds.sshKeyPassphrase
-        ? await decryptCredential(creds.sshKeyPassphrase)
-        : null,
-    },
-  });
-});
+// Credentials are never exposed over HTTP. The migration worker reads them
+// in-process via decryptCredential. Intentionally no public credentials route.
 
 app.post("/api/migrations/:id/cancel", requireAuth, async (c) => {
   const id = c.req.param("id");
@@ -196,7 +197,6 @@ app.delete("/api/migrations/:id", requireAuth, async (c) => {
     return c.json({ error: "Migration not found" }, 404);
   }
 
-  // Delete credentials first (cascade should handle this, but being explicit)
   await db
     .delete(migrationCredentials)
     .where(eq(migrationCredentials.migrationId, id));
@@ -234,21 +234,12 @@ async function fetchWithTimeout(
   }
 }
 
-function ensureHttps(url: string): boolean {
-  try {
-    const u = new URL(url);
-    return u.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-// External service integrations
+// External service integrations — tokens via X-Provider-Token header only
 app.get("/api/migrations/github/repos", requireAuth, async (c) => {
-  const token = c.req.query("token");
+  const token = providerToken(c);
 
   if (!token) {
-    return c.json({ error: "GitHub token required" }, 400);
+    return c.json({ error: "GitHub token required (X-Provider-Token header)" }, 400);
   }
 
   try {
@@ -291,18 +282,16 @@ app.get("/api/migrations/github/repos", requireAuth, async (c) => {
 });
 
 app.get("/api/migrations/gitlab/repos", requireAuth, async (c) => {
-  const token = c.req.query("token");
-  const baseUrl = (c.req.query("baseUrl") || "https://gitlab.com").replace(
-    /\/$/,
-    ""
-  );
+  const token = providerToken(c);
+  const baseUrl = (c.req.query("baseUrl") || "https://gitlab.com").replace(/\/$/, "");
 
   if (!token) {
-    return c.json({ error: "GitLab token required" }, 400);
+    return c.json({ error: "GitLab token required (X-Provider-Token header)" }, 400);
   }
 
-  if (process.env.NODE_ENV === "production" && !ensureHttps(baseUrl)) {
-    return c.json({ error: "baseUrl must use HTTPS" }, 400);
+  const baseErr = outboundUrlError(baseUrl, { requireHttps: requireHttpsOutbound() });
+  if (baseErr) {
+    return c.json({ error: baseErr }, 400);
   }
 
   try {
@@ -340,20 +329,21 @@ app.get("/api/migrations/gitlab/repos", requireAuth, async (c) => {
 });
 
 app.get("/api/migrations/gitea/repos", requireAuth, async (c) => {
-  const token = c.req.query("token");
+  const token = providerToken(c);
   const baseUrl = c.req.query("baseUrl");
 
   if (!token) {
-    return c.json({ error: "Gitea token required" }, 400);
+    return c.json({ error: "Gitea token required (X-Provider-Token header)" }, 400);
   }
 
   if (!baseUrl) {
     return c.json({ error: "Gitea base URL required" }, 400);
   }
 
-  const normalizedBase = (baseUrl as string).replace(/\/$/, "");
-  if (process.env.NODE_ENV === "production" && !ensureHttps(normalizedBase)) {
-    return c.json({ error: "baseUrl must use HTTPS" }, 400);
+  const normalizedBase = baseUrl.replace(/\/$/, "");
+  const baseErr = outboundUrlError(normalizedBase, { requireHttps: requireHttpsOutbound() });
+  if (baseErr) {
+    return c.json({ error: baseErr }, 400);
   }
 
   try {
@@ -391,10 +381,10 @@ app.get("/api/migrations/gitea/repos", requireAuth, async (c) => {
 });
 
 app.get("/api/migrations/bitbucket/repos", requireAuth, async (c) => {
-  const token = c.req.query("token");
+  const token = providerToken(c);
 
   if (!token) {
-    return c.json({ error: "Bitbucket token required" }, 400);
+    return c.json({ error: "Bitbucket token required (X-Provider-Token header)" }, 400);
   }
 
   try {

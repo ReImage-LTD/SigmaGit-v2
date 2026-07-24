@@ -77,7 +77,7 @@ export function useUpdateEmail() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { email: string }) => api.settings.updateEmail(data),
+    mutationFn: (data: { email: string; password: string }) => api.settings.updateEmail(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
     },
@@ -128,7 +128,7 @@ export function useDeleteAccount() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.settings.deleteAccount(),
+    mutationFn: (data: { password: string }) => api.settings.deleteAccount(data),
     onSuccess: () => {
       queryClient.clear();
     },

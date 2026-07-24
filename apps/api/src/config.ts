@@ -1,6 +1,6 @@
 import { normalizeUrl } from '@sigmagit/lib';
 
-const baseOrigins = ['http://localhost:3000', 'http://localhost:3001'];
+const devOrigins = ['http://localhost:3000', 'http://localhost:3001'];
 
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -112,8 +112,13 @@ export const getWebUrl = (): string => {
   return 'http://localhost:3000';
 };
 
-export const getTrustedOrigins = (): string[] => {
-  const origins: string[] = [...baseOrigins];
+function collectConfiguredOrigins(): string[] {
+  const origins: string[] = [];
+
+  // Localhost is only allowed outside production to reduce cookie CSRF surface.
+  if (!config.isProduction) {
+    origins.push(...devOrigins);
+  }
 
   if (config.apiUrl) {
     origins.push(normalizeUrl(config.apiUrl));
@@ -123,19 +128,17 @@ export const getTrustedOrigins = (): string[] => {
     origins.push(normalizeUrl(config.webUrl));
   }
 
-  return origins;
-};
-
-export const getAllowedOrigins = (): string[] => {
-  const allowedOrigins = [...baseOrigins];
-
-  if (config.apiUrl) {
-    allowedOrigins.push(normalizeUrl(config.apiUrl));
+  const extra = process.env.ALLOWED_ORIGINS;
+  if (extra) {
+    for (const part of extra.split(',')) {
+      const trimmed = part.trim();
+      if (trimmed) origins.push(normalizeUrl(trimmed));
+    }
   }
 
-  if (config.webUrl) {
-    allowedOrigins.push(normalizeUrl(config.webUrl));
-  }
+  return [...new Set(origins)];
+}
 
-  return allowedOrigins;
-};
+export const getTrustedOrigins = (): string[] => collectConfiguredOrigins();
+
+export const getAllowedOrigins = (): string[] => collectConfiguredOrigins();

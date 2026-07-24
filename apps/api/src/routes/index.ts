@@ -34,10 +34,12 @@ import reports from "./reports";
 import dmca from "./dmca";
 import registry from "./registry";
 import packages from "./packages";
+import { wsTicketRoutes } from "../websocket";
 
 export function mountRoutes(app: Hono) {
   app.route("/", health);
   app.route("/", install);
+  app.route("/", wsTicketRoutes);
   app.route("/", nostrAuth);
   app.route("/", auth);
   app.route("/", users);

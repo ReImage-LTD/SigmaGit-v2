@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "bun run --watch --env-file ../../.env src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun --minify --packages=external",
-    "start": "bun run --env-file ../../.env src/index.ts"
+    "start": "bun run --env-file ../../.env src/index.ts",
+    "test": "bun test src/test",
+    "test:security": "bun test src/test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1057.0",
