@@ -20,7 +20,7 @@ COPY apps/web/package.json ./apps/web/
 COPY packages/lib/package.json ./packages/lib/
 COPY packages/hooks/package.json ./packages/hooks/
 
-RUN bun install
+RUN bun install --frozen-lockfile
 
 COPY packages ./packages
 COPY apps/web ./apps/web
@@ -33,13 +33,15 @@ FROM oven/bun:1.3.5-alpine AS runner
 
 WORKDIR /app
 
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/apps/web/node_modules ./apps/web/node_modules
-COPY --from=builder /app/apps/web/.output ./apps/web/.output
-COPY --from=builder /app/apps/web/package.json ./apps/web/package.json
+COPY --chown=bun:bun --from=builder /app/node_modules ./node_modules
+COPY --chown=bun:bun --from=builder /app/apps/web/node_modules ./apps/web/node_modules
+COPY --chown=bun:bun --from=builder /app/apps/web/.output ./apps/web/.output
+COPY --chown=bun:bun --from=builder /app/apps/web/package.json ./apps/web/package.json
 
 ENV NODE_ENV=production
 EXPOSE 3000
 WORKDIR /app/apps/web
+
+USER bun
 
 CMD ["bun", "run", ".output/server/index.mjs"]

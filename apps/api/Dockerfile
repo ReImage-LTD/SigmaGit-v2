@@ -11,7 +11,7 @@ COPY packages/db/package.json ./packages/db/
 COPY packages/lib/package.json ./packages/lib/
 COPY packages/hooks/package.json ./packages/hooks/
 
-RUN bun install
+RUN bun install --frozen-lockfile
 
 COPY packages/db ./packages/db
 COPY packages/lib ./packages/lib
@@ -25,14 +25,18 @@ FROM oven/bun:1.3.5-alpine AS runner
 
 WORKDIR /app
 
-COPY --from=builder /app/apps/api/dist ./dist
-COPY --from=builder /app/apps/api/package.json ./
-COPY --from=builder /app/node_modules ./node_modules
+COPY --chown=bun:bun --from=builder /app/apps/api/dist ./dist
+COPY --chown=bun:bun --from=builder /app/apps/api/package.json ./
+COPY --chown=bun:bun --from=builder /app/node_modules ./node_modules
+
+RUN mkdir -p /data/repos && chown -R bun:bun /data
 
 ENV NODE_ENV=production
 ENV PORT=3001
 
 EXPOSE 3001
+
+USER bun
 
 HEALTHCHECK CMD wget -qO- http://localhost:3001/health || exit 1
 

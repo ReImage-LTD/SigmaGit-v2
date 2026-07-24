@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   useAddTeamRepo,
   useCreateTeam,
@@ -17,32 +16,57 @@ import {
   useUserPackages,
   useUserRepositories,
   useUserStarredRepos,
-} from "@sigmagit/hooks";
-import { toast } from "sonner";
-import { Activity, Award, BookOpen, Building2, Calendar, Flag, GitBranch, Globe, Link as LinkIcon, Mail, MapPin, Package, Settings, Star, Trash2, Users } from "lucide-react";
-import { createFileRoute, notFound } from "@tanstack/react-router";
-import { formatDate, timeAgo } from "@sigmagit/lib";
-import { GithubIcon, LinkedInIcon, XIcon } from "@/components/icons";
-import RepositoryCard from "@/components/repository-card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import { ReportDialog } from "@/components/report-dialog";
-import { createMeta } from "@/lib/seo";
-import { useSession } from "@/lib/auth-client";
-import { parseAsStringLiteral, useQueryState } from "@/lib/hooks";
-import { cn } from "@/lib/utils";
+} from '@sigmagit/hooks';
+import {
+  Activity,
+  Award,
+  BookOpen,
+  Building2,
+  Calendar,
+  Flag,
+  GitBranch,
+  Globe,
+  Link as LinkIcon,
+  Mail,
+  MapPin,
+  Package,
+  Settings,
+  Star,
+  Trash2,
+  Users,
+} from 'lucide-react';
+import { createFileRoute, notFound } from '@tanstack/react-router';
+import { formatDate, timeAgo } from '@sigmagit/lib';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { GithubIcon, LinkedInIcon, XIcon } from '@/components/icons';
+import { parseAsStringLiteral, useQueryState } from '@/lib/hooks';
+import RepositoryCard from '@/components/repository-card';
+import { ReportDialog } from '@/components/report-dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { sanitizeUserUrl } from '@/lib/safe-html';
+import { Button } from '@/components/ui/button';
+import { useSession } from '@/lib/auth-client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { createMeta } from '@/lib/seo';
+import { cn } from '@/lib/utils';
 
-const ORG_MEMBER_ROLES = ["owner", "admin", "member"] as const;
+const ORG_MEMBER_ROLES = ['owner', 'admin', 'member'] as const;
 type OrganizationRole = (typeof ORG_MEMBER_ROLES)[number];
-const TEAM_PERMISSIONS = ["read", "write", "admin"] as const;
+const TEAM_PERMISSIONS = ['read', 'write', 'admin'] as const;
 type TeamPermission = (typeof TEAM_PERMISSIONS)[number];
 
-export const Route = createFileRoute("/_main/$username/")({
+export const Route = createFileRoute('/_main/$username/')({
   head: ({ params }) => ({
     meta: createMeta({
       title: params.username,
@@ -53,16 +77,24 @@ export const Route = createFileRoute("/_main/$username/")({
 });
 
 // Modern stat card component
-function StatCard({ value, label, icon: Icon }: { value: number | string; label: string; icon: React.ElementType }) {
+function StatCard({
+  value,
+  label,
+  icon: Icon,
+}: {
+  value: number | string;
+  label: string;
+  icon: React.ElementType;
+}) {
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-border/50 bg-card/50 p-4 transition-all duration-300 hover:bg-card hover:border-border hover:shadow-md">
+    <div className="group border-border/50 bg-card/50 hover:bg-card hover:border-border relative overflow-hidden rounded-xl border p-4 transition-all duration-300 hover:shadow-md">
       <div className="flex items-center gap-3">
-        <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+        <div className="bg-primary/10 text-primary group-hover:bg-primary/15 flex size-10 items-center justify-center rounded-lg transition-colors">
           <Icon className="size-5" />
         </div>
         <div>
           <div className="text-2xl font-bold tracking-tight">{value}</div>
-          <div className="text-xs font-medium text-muted-foreground">{label}</div>
+          <div className="text-muted-foreground text-xs font-medium">{label}</div>
         </div>
       </div>
     </div>
@@ -70,14 +102,22 @@ function StatCard({ value, label, icon: Icon }: { value: number | string; label:
 }
 
 // Modern empty state component
-function EmptyState({ icon: Icon, title, description }: { icon: React.ElementType; title: string; description: string }) {
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description: string;
+}) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-16">
-      <div className="flex size-16 items-center justify-center rounded-full bg-muted/50">
-        <Icon className="size-8 text-muted-foreground/50" />
+    <div className="border-border/60 bg-muted/20 flex flex-col items-center justify-center rounded-xl border border-dashed px-4 py-16">
+      <div className="bg-muted/50 flex size-16 items-center justify-center rounded-full">
+        <Icon className="text-muted-foreground/50 size-8" />
       </div>
       <h3 className="mt-4 text-base font-semibold">{title}</h3>
-      <p className="mt-1 max-w-xs text-center text-sm text-muted-foreground">{description}</p>
+      <p className="text-muted-foreground mt-1 max-w-xs text-center text-sm">{description}</p>
     </div>
   );
 }
@@ -87,7 +127,7 @@ function TabSkeleton() {
   return (
     <div className="flex flex-col gap-3">
       {[...Array(3)].map((_, i) => (
-        <div key={i} className="h-28 animate-pulse rounded-xl bg-muted/60" />
+        <div key={i} className="bg-muted/60 h-28 animate-pulse rounded-xl" />
       ))}
     </div>
   );
@@ -152,13 +192,15 @@ function PackagesTab({ username, enabled = true }: { username: string; enabled?:
       {packages.map((pkg) => (
         <div
           key={`${pkg.owner}/${pkg.name}`}
-          className="group flex items-center justify-between rounded-xl border border-border/50 bg-card/50 p-4 transition-all duration-300 hover:bg-card hover:border-border hover:shadow-sm"
+          className="group border-border/50 bg-card/50 hover:bg-card hover:border-border flex items-center justify-between rounded-xl border p-4 transition-all duration-300 hover:shadow-sm"
         >
           <div className="min-w-0">
-            <p className="font-mono font-medium text-foreground">{pkg.owner}/{pkg.name}</p>
-            <p className="text-sm text-muted-foreground">{pkg.tags.length} tag(s)</p>
+            <p className="text-foreground font-mono font-medium">
+              {pkg.owner}/{pkg.name}
+            </p>
+            <p className="text-muted-foreground text-sm">{pkg.tags.length} tag(s)</p>
           </div>
-          <code className="hidden shrink-0 rounded-md bg-muted px-3 py-1.5 text-xs text-muted-foreground sm:block">
+          <code className="bg-muted text-muted-foreground hidden shrink-0 rounded-md px-3 py-1.5 text-xs sm:block">
             docker pull &lt;host&gt;/{pkg.owner}/{pkg.name}:&lt;tag&gt;
           </code>
         </div>
@@ -241,10 +283,10 @@ function OrganizationMemberRow({
   currentUsername?: string;
 }) {
   const username = member?.user?.username as string | undefined;
-  const removeMember = useRemoveOrgMember(orgName, username || "");
+  const removeMember = useRemoveOrgMember(orgName, username || '');
 
   const canRemove =
-    canManageMembers && !!username && username !== currentUsername && member.role !== "owner";
+    canManageMembers && !!username && username !== currentUsername && member.role !== 'owner';
 
   const handleRemoveMember = async () => {
     if (!username) return;
@@ -253,7 +295,7 @@ function OrganizationMemberRow({
       await removeMember.mutateAsync();
       toast.success(`Removed @${username} from organization`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to remove member");
+      toast.error(error instanceof Error ? error.message : 'Failed to remove member');
     }
   };
 
@@ -262,16 +304,16 @@ function OrganizationMemberRow({
       <div className="flex items-center gap-3">
         <Avatar className="size-10">
           <AvatarFallback className="bg-muted text-sm font-medium">
-            {member.user?.name?.charAt(0) || "?"}
+            {member.user?.name?.charAt(0) || '?'}
           </AvatarFallback>
         </Avatar>
         <div>
-          <div className="font-medium">{member.user?.name || "Unknown"}</div>
-          <div className="text-sm text-muted-foreground">@{member.user?.username || "unknown"}</div>
+          <div className="font-medium">{member.user?.name || 'Unknown'}</div>
+          <div className="text-muted-foreground text-sm">@{member.user?.username || 'unknown'}</div>
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium capitalize text-muted-foreground">
+        <span className="bg-muted text-muted-foreground rounded-full px-2.5 py-1 text-xs font-medium capitalize">
           {member.role}
         </span>
         {canRemove && (
@@ -308,7 +350,7 @@ function OrganizationMembersTab({
   const members = data?.members || [];
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border/50 bg-card/50">
+    <div className="border-border/50 bg-card/50 overflow-hidden rounded-xl border">
       {members.map((member) => (
         <OrganizationMemberRow
           key={member.userId}
@@ -332,12 +374,12 @@ function OrganizationSettingsMemberRow({
   currentUsername?: string;
 }) {
   const username = member?.user?.username as string | undefined;
-  const role = (member?.role || "member") as OrganizationRole;
-  const updateMemberRole = useUpdateOrgMember(orgName, username || "");
-  const removeMember = useRemoveOrgMember(orgName, username || "");
+  const role = (member?.role || 'member') as OrganizationRole;
+  const updateMemberRole = useUpdateOrgMember(orgName, username || '');
+  const removeMember = useRemoveOrgMember(orgName, username || '');
 
   const isSelf = username === currentUsername;
-  const isOwner = role === "owner";
+  const isOwner = role === 'owner';
   const canEditRole = !!username && !isSelf && !isOwner;
   const canRemove = !!username && !isSelf && !isOwner;
 
@@ -347,7 +389,7 @@ function OrganizationSettingsMemberRow({
       await updateMemberRole.mutateAsync({ role: nextRole as OrganizationRole });
       toast.success(`Updated @${username} to ${nextRole}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update role");
+      toast.error(error instanceof Error ? error.message : 'Failed to update role');
     }
   };
 
@@ -358,7 +400,7 @@ function OrganizationSettingsMemberRow({
       await removeMember.mutateAsync();
       toast.success(`Removed @${username}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to remove member");
+      toast.error(error instanceof Error ? error.message : 'Failed to remove member');
     }
   };
 
@@ -367,12 +409,14 @@ function OrganizationSettingsMemberRow({
       <div className="flex min-w-0 items-center gap-3">
         <Avatar className="size-10">
           <AvatarFallback className="bg-muted text-sm font-medium">
-            {member.user?.name?.charAt(0) || "?"}
+            {member.user?.name?.charAt(0) || '?'}
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0">
-          <div className="truncate font-medium">{member.user?.name || "Unknown"}</div>
-          <div className="truncate text-sm text-muted-foreground">@{member.user?.username || "unknown"}</div>
+          <div className="truncate font-medium">{member.user?.name || 'Unknown'}</div>
+          <div className="text-muted-foreground truncate text-sm">
+            @{member.user?.username || 'unknown'}
+          </div>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -410,8 +454,8 @@ function OrganizationSettingsMembersSection({
   currentUsername?: string;
 }) {
   const { data, isLoading } = useOrganizationMembers(orgName);
-  const [usernameInput, setUsernameInput] = useState("");
-  const [newMemberRole, setNewMemberRole] = useState<OrganizationRole>("member");
+  const [usernameInput, setUsernameInput] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState<OrganizationRole>('member');
   const addOrUpdateMember = useUpdateOrgMember(orgName, usernameInput.trim());
 
   const members = data?.members || [];
@@ -419,23 +463,23 @@ function OrganizationSettingsMembersSection({
   const handleAddMember = async () => {
     const username = usernameInput.trim();
     if (!username) {
-      toast.error("Enter a username");
+      toast.error('Enter a username');
       return;
     }
 
     try {
       await addOrUpdateMember.mutateAsync({ role: newMemberRole });
       toast.success(`Added/updated @${username}`);
-      setUsernameInput("");
-      setNewMemberRole("member");
+      setUsernameInput('');
+      setNewMemberRole('member');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to add member");
+      toast.error(error instanceof Error ? error.message : 'Failed to add member');
     }
   };
 
   return (
     <div className="space-y-6">
-      <div className="overflow-hidden rounded-xl border border-border/50 bg-card/50 p-6">
+      <div className="border-border/50 bg-card/50 overflow-hidden rounded-xl border p-6">
         <h3 className="mb-4 text-lg font-semibold">Add Member</h3>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_160px_auto]">
           <Input
@@ -463,16 +507,16 @@ function OrganizationSettingsMembersSection({
             Add member
           </Button>
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">
+        <p className="text-muted-foreground mt-3 text-xs">
           Enter an existing username to add them to this organization.
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border/50 bg-card/50">
+      <div className="border-border/50 bg-card/50 overflow-hidden rounded-xl border">
         {isLoading ? (
-          <div className="p-6 text-sm text-muted-foreground">Loading members...</div>
+          <div className="text-muted-foreground p-6 text-sm">Loading members...</div>
         ) : members.length === 0 ? (
-          <div className="p-6 text-sm text-muted-foreground">No members yet.</div>
+          <div className="text-muted-foreground p-6 text-sm">No members yet.</div>
         ) : (
           members.map((member) => (
             <OrganizationSettingsMemberRow
@@ -491,17 +535,22 @@ function OrganizationSettingsMembersSection({
 function OrganizationSettingsTeamsSection({ orgName }: { orgName: string }) {
   const { data: teamsData, isLoading: isLoadingTeams } = useOrganizationTeams(orgName);
   const { data: orgReposData } = useOrganizationRepos(orgName);
-  const [selectedTeamSlug, setSelectedTeamSlug] = useState("");
-  const [newTeamName, setNewTeamName] = useState("");
-  const [newTeamDescription, setNewTeamDescription] = useState("");
-  const [newTeamPermission, setNewTeamPermission] = useState<TeamPermission>("read");
-  const [repoName, setRepoName] = useState("");
-  const [repoPermission, setRepoPermission] = useState<TeamPermission>("read");
+  const [selectedTeamSlug, setSelectedTeamSlug] = useState('');
+  const [newTeamName, setNewTeamName] = useState('');
+  const [newTeamDescription, setNewTeamDescription] = useState('');
+  const [newTeamPermission, setNewTeamPermission] = useState<TeamPermission>('read');
+  const [repoName, setRepoName] = useState('');
+  const [repoPermission, setRepoPermission] = useState<TeamPermission>('read');
 
   const createTeam = useCreateTeam(orgName);
   const deleteTeam = useDeleteTeam(orgName, selectedTeamSlug);
-  const { data: selectedTeamData, isLoading: isLoadingSelectedTeam } = useTeam(orgName, selectedTeamSlug);
-  const addTeamRepo = useAddTeamRepo(orgName, selectedTeamSlug, repoName, { permission: repoPermission });
+  const { data: selectedTeamData, isLoading: isLoadingSelectedTeam } = useTeam(
+    orgName,
+    selectedTeamSlug,
+  );
+  const addTeamRepo = useAddTeamRepo(orgName, selectedTeamSlug, repoName, {
+    permission: repoPermission,
+  });
   const removeTeamRepo = useRemoveTeamRepo(orgName, selectedTeamSlug, repoName);
 
   const teams = teamsData?.teams || [];
@@ -518,13 +567,13 @@ function OrganizationSettingsTeamsSection({ orgName }: { orgName: string }) {
   }, [selectedTeamSlug, teams]);
 
   const availableRepos = repositories.filter(
-    (repo) => !assignedRepos.some((assigned) => assigned.repository?.name === repo.name)
+    (repo) => !assignedRepos.some((assigned) => assigned.repository?.name === repo.name),
   );
 
   const handleCreateTeam = async () => {
     const name = newTeamName.trim();
     if (!name) {
-      toast.error("Team name is required");
+      toast.error('Team name is required');
       return;
     }
 
@@ -534,14 +583,14 @@ function OrganizationSettingsTeamsSection({ orgName }: { orgName: string }) {
         description: newTeamDescription.trim() || undefined,
         permission: newTeamPermission,
       });
-      const slug = name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+      const slug = name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
       setSelectedTeamSlug(slug);
-      setNewTeamName("");
-      setNewTeamDescription("");
-      setNewTeamPermission("read");
-      toast.success("Team created");
+      setNewTeamName('');
+      setNewTeamDescription('');
+      setNewTeamPermission('read');
+      toast.success('Team created');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create team");
+      toast.error(error instanceof Error ? error.message : 'Failed to create team');
     }
   };
 
@@ -550,25 +599,25 @@ function OrganizationSettingsTeamsSection({ orgName }: { orgName: string }) {
     if (!confirm(`Delete team "${selectedTeamSlug}"?`)) return;
     try {
       await deleteTeam.mutateAsync();
-      toast.success("Team deleted");
-      setSelectedTeamSlug("");
+      toast.success('Team deleted');
+      setSelectedTeamSlug('');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to delete team");
+      toast.error(error instanceof Error ? error.message : 'Failed to delete team');
     }
   };
 
   const handleAssignRepo = async () => {
     if (!selectedTeamSlug || !repoName) {
-      toast.error("Select a team and repository");
+      toast.error('Select a team and repository');
       return;
     }
     try {
       await addTeamRepo.mutateAsync();
-      toast.success("Repository access assigned");
-      setRepoName("");
-      setRepoPermission("read");
+      toast.success('Repository access assigned');
+      setRepoName('');
+      setRepoPermission('read');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to assign repository access");
+      toast.error(error instanceof Error ? error.message : 'Failed to assign repository access');
     }
   };
 
@@ -578,15 +627,15 @@ function OrganizationSettingsTeamsSection({ orgName }: { orgName: string }) {
     try {
       setRepoName(name);
       await removeTeamRepo.mutateAsync();
-      toast.success("Repository access removed");
+      toast.success('Repository access removed');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to remove repository access");
+      toast.error(error instanceof Error ? error.message : 'Failed to remove repository access');
     }
   };
 
   return (
     <div className="space-y-6">
-      <div className="overflow-hidden rounded-xl border border-border/50 bg-card/50 p-6">
+      <div className="border-border/50 bg-card/50 overflow-hidden rounded-xl border p-6">
         <h3 className="mb-4 text-lg font-semibold">Create Team</h3>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px]">
           <Input
@@ -625,20 +674,25 @@ function OrganizationSettingsTeamsSection({ orgName }: { orgName: string }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border/50 bg-card/50 p-6">
+      <div className="border-border/50 bg-card/50 overflow-hidden rounded-xl border p-6">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="text-lg font-semibold">Team Repository Access</h3>
           {selectedTeamSlug && (
-            <Button variant="destructive" size="sm" onClick={handleDeleteTeam} disabled={deleteTeam.isPending}>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDeleteTeam}
+              disabled={deleteTeam.isPending}
+            >
               Delete team
             </Button>
           )}
         </div>
 
         {isLoadingTeams ? (
-          <p className="text-sm text-muted-foreground">Loading teams...</p>
+          <p className="text-muted-foreground text-sm">Loading teams...</p>
         ) : teams.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             No teams yet. Create one to assign repository access.
           </p>
         ) : (
@@ -694,19 +748,22 @@ function OrganizationSettingsTeamsSection({ orgName }: { orgName: string }) {
                   </Button>
                 </div>
 
-                <div className="overflow-hidden rounded-lg border border-border/50">
+                <div className="border-border/50 overflow-hidden rounded-lg border">
                   {isLoadingSelectedTeam ? (
-                    <div className="p-4 text-sm text-muted-foreground">Loading team access...</div>
+                    <div className="text-muted-foreground p-4 text-sm">Loading team access...</div>
                   ) : assignedRepos.length === 0 ? (
-                    <div className="p-4 text-sm text-muted-foreground">
+                    <div className="text-muted-foreground p-4 text-sm">
                       No repositories assigned to this team yet.
                     </div>
                   ) : (
                     assignedRepos.map((assigned) => (
-                      <div key={assigned.repository?.id} className="flex items-center justify-between p-4">
+                      <div
+                        key={assigned.repository?.id}
+                        className="flex items-center justify-between p-4"
+                      >
                         <div>
                           <div className="font-medium">{assigned.repository?.name}</div>
-                          <div className="text-sm text-muted-foreground">
+                          <div className="text-muted-foreground text-sm">
                             Permission: {assigned.permission}
                           </div>
                         </div>
@@ -750,23 +807,23 @@ function OrganizationSettingsTab({
 }) {
   const updateOrg = useUpdateOrganization(orgName);
   const deleteOrg = useDeleteOrganization(orgName);
-  const [section, setSection] = useState<"general" | "members" | "teams" | "danger">("general");
+  const [section, setSection] = useState<'general' | 'members' | 'teams' | 'danger'>('general');
   const [formData, setFormData] = useState({
-    displayName: org.displayName || "",
-    description: org.description || "",
-    email: org.email || "",
-    website: org.website || "",
-    location: org.location || "",
+    displayName: org.displayName || '',
+    description: org.description || '',
+    email: org.email || '',
+    website: org.website || '',
+    location: org.location || '',
   });
   const navigate = Route.useNavigate();
 
   useEffect(() => {
     setFormData({
-      displayName: org.displayName || "",
-      description: org.description || "",
-      email: org.email || "",
-      website: org.website || "",
-      location: org.location || "",
+      displayName: org.displayName || '',
+      description: org.description || '',
+      email: org.email || '',
+      website: org.website || '',
+      location: org.location || '',
     });
   }, [org.displayName, org.description, org.email, org.website, org.location]);
 
@@ -779,9 +836,9 @@ function OrganizationSettingsTab({
         website: formData.website || null,
         location: formData.location || null,
       });
-      toast.success("Organization settings updated");
+      toast.success('Organization settings updated');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update organization");
+      toast.error(error instanceof Error ? error.message : 'Failed to update organization');
     }
   };
 
@@ -790,36 +847,36 @@ function OrganizationSettingsTab({
     if (!confirm(`Delete @${orgName}? This action cannot be undone.`)) return;
     try {
       await deleteOrg.mutateAsync();
-      toast.success("Organization deleted");
-      navigate({ to: "/" });
+      toast.success('Organization deleted');
+      navigate({ to: '/' });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to delete organization");
+      toast.error(error instanceof Error ? error.message : 'Failed to delete organization');
     }
   };
 
   const navItems = [
-    { id: "general", label: "General" },
-    { id: "members", label: "Members" },
-    { id: "teams", label: "Teams" },
-    { id: "danger", label: "Danger Zone", danger: true },
+    { id: 'general', label: 'General' },
+    { id: 'members', label: 'Members' },
+    { id: 'teams', label: 'Teams' },
+    { id: 'danger', label: 'Danger Zone', danger: true },
   ] as const;
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[240px_1fr]">
-      <nav className="h-fit overflow-hidden rounded-xl border border-border/50 bg-card/50 p-2">
+      <nav className="border-border/50 bg-card/50 h-fit overflow-hidden rounded-xl border p-2">
         <div className="space-y-1">
           {navItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setSection(item.id)}
               className={cn(
-                "flex w-full items-center rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+                'flex w-full items-center rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200',
                 section === item.id
                   ? item.danger
-                    ? "bg-destructive/10 text-destructive"
-                    : "bg-muted text-foreground"
-                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                item.danger && section !== item.id && "text-destructive/70 hover:text-destructive"
+                    ? 'bg-destructive/10 text-destructive'
+                    : 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                item.danger && section !== item.id && 'text-destructive/70 hover:text-destructive',
               )}
             >
               {item.label}
@@ -829,8 +886,8 @@ function OrganizationSettingsTab({
       </nav>
 
       <div className="space-y-6">
-        {section === "general" && (
-          <div className="overflow-hidden rounded-xl border border-border/50 bg-card/50 p-6">
+        {section === 'general' && (
+          <div className="border-border/50 bg-card/50 overflow-hidden rounded-xl border p-6">
             <h3 className="mb-4 text-lg font-semibold">General</h3>
             <div className="space-y-4">
               <div className="space-y-2">
@@ -893,16 +950,16 @@ function OrganizationSettingsTab({
           </div>
         )}
 
-        {section === "members" && (
+        {section === 'members' && (
           <OrganizationSettingsMembersSection orgName={orgName} currentUsername={currentUsername} />
         )}
 
-        {section === "teams" && <OrganizationSettingsTeamsSection orgName={orgName} />}
+        {section === 'teams' && <OrganizationSettingsTeamsSection orgName={orgName} />}
 
-        {section === "danger" && (
-          <div className="overflow-hidden rounded-xl border border-destructive/30 bg-card/50 p-6">
-            <h3 className="mb-2 text-lg font-semibold text-destructive">Danger Zone</h3>
-            <p className="mb-4 text-sm text-muted-foreground">
+        {section === 'danger' && (
+          <div className="border-destructive/30 bg-card/50 overflow-hidden rounded-xl border p-6">
+            <h3 className="text-destructive mb-2 text-lg font-semibold">Danger Zone</h3>
+            <p className="text-muted-foreground mb-4 text-sm">
               Delete this organization and all associated repositories.
             </p>
             <Button
@@ -945,16 +1002,16 @@ function OrganizationTeamsTab({ orgName }: { orgName: string }) {
       {teams.map((team) => (
         <div
           key={team.id}
-          className="overflow-hidden rounded-xl border border-border/50 bg-card/50 p-4 transition-all duration-300 hover:bg-card hover:border-border hover:shadow-sm"
+          className="border-border/50 bg-card/50 hover:bg-card hover:border-border overflow-hidden rounded-xl border p-4 transition-all duration-300 hover:shadow-sm"
         >
           <div className="flex items-center justify-between">
             <div>
               <div className="font-medium">{team.name}</div>
               {team.description && (
-                <div className="mt-1 text-sm text-muted-foreground">{team.description}</div>
+                <div className="text-muted-foreground mt-1 text-sm">{team.description}</div>
               )}
             </div>
-            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium capitalize text-muted-foreground">
+            <span className="bg-muted text-muted-foreground rounded-full px-2.5 py-1 text-xs font-medium capitalize">
               {team.permission}
             </span>
           </div>
@@ -975,19 +1032,20 @@ function ProfileInfoItem({
   href?: string;
 }) {
   const content = (
-    <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
-      <Icon className="size-4 shrink-0 text-muted-foreground/70" />
+    <div className="text-muted-foreground flex items-center gap-2.5 text-sm">
+      <Icon className="text-muted-foreground/70 size-4 shrink-0" />
       <span className="truncate">{children}</span>
     </div>
   );
 
-  if (href) {
+  const safeHref = sanitizeUserUrl(href);
+  if (safeHref) {
     return (
       <a
-        href={href}
+        href={safeHref}
         target="_blank"
         rel="noopener noreferrer"
-        className="group block transition-colors hover:text-primary"
+        className="group hover:text-primary block transition-colors"
       >
         {content}
       </a>
@@ -1007,13 +1065,15 @@ function SocialLink({
   icon: React.ElementType;
   label: string;
 }) {
+  const safeHref = sanitizeUserUrl(href);
+  if (!safeHref) return null;
   return (
     <a
-      href={href}
+      href={safeHref}
       target="_blank"
       rel="noopener noreferrer"
       aria-label={label}
-      className="flex size-9 items-center justify-center rounded-lg bg-muted/50 text-muted-foreground transition-all duration-200 hover:bg-primary/10 hover:text-primary"
+      className="bg-muted/50 text-muted-foreground hover:bg-primary/10 hover:text-primary flex size-9 items-center justify-center rounded-lg transition-all duration-200"
     >
       <Icon className="size-4" />
     </a>
@@ -1023,29 +1083,44 @@ function SocialLink({
 function ProfilePage() {
   const { username } = Route.useParams();
   const [tab, setTab] = useQueryState(
-    "tab",
-    parseAsStringLiteral(["repositories", "starred", "packages", "members", "teams", "settings"]).withDefault(
-      "repositories"
-    )
+    'tab',
+    parseAsStringLiteral([
+      'repositories',
+      'starred',
+      'packages',
+      'members',
+      'teams',
+      'settings',
+    ]).withDefault('repositories'),
   );
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const { data: session } = useSession();
 
   // Single request to resolve org vs user; then lazy-load tab data
   const { data: resolved, isLoading, error: resolveError } = useProfileResolve(username);
-  const isOrg = resolved?.type === "organization";
-  const isUser = resolved?.type === "user";
+  const isOrg = resolved?.type === 'organization';
+  const isUser = resolved?.type === 'user';
   const org = isOrg ? resolved.profile : null;
   const user = isUser ? resolved.profile : null;
 
   const { data: countsData } = useProfileCounts(username, { enabled: isUser });
-  const { data: orgReposData } = useOrganizationRepos(username, { enabled: isOrg && tab === "repositories" });
-  const { data: orgMembersData } = useOrganizationMembers(username, { enabled: isOrg && tab === "members" });
-  const { data: orgTeamsData } = useOrganizationTeams(username, { enabled: isOrg && tab === "teams" });
-  const { data: reposData } = useUserRepositories(username, { enabled: isUser && tab === "repositories" });
-  const { data: starredData } = useUserStarredRepos(username, { enabled: isUser && tab === "starred" });
+  const { data: orgReposData } = useOrganizationRepos(username, {
+    enabled: isOrg && tab === 'repositories',
+  });
+  const { data: orgMembersData } = useOrganizationMembers(username, {
+    enabled: isOrg && tab === 'members',
+  });
+  const { data: orgTeamsData } = useOrganizationTeams(username, {
+    enabled: isOrg && tab === 'teams',
+  });
+  const { data: reposData } = useUserRepositories(username, {
+    enabled: isUser && tab === 'repositories',
+  });
+  const { data: starredData } = useUserStarredRepos(username, {
+    enabled: isUser && tab === 'starred',
+  });
 
-  const currentUsername = (session?.user as { username?: string })?.username;
+  const currentUsername = (session?.user as { username?: string } | undefined)?.username;
   const currentUserId = session?.user.id;
   const orgMembers = orgMembersData?.members ?? [];
   const orgRepos = orgReposData?.repositories ?? [];
@@ -1053,12 +1128,14 @@ function ProfilePage() {
   const userRepos = reposData?.repos ?? [];
   const starredRepos = starredData?.repos ?? [];
   const currentOrgMembership = orgMembers.find(
-    (member) => (member as any).user?.username === currentUsername
+    (member) => (member as any).user?.username === currentUsername,
   );
-  const isOrgOwner = currentOrgMembership?.role === "owner";
+  const isOrgOwner = currentOrgMembership?.role === 'owner';
   const canManageMembers = isOrgOwner;
 
-  const repoCount = isOrg ? (org?.repoCount ?? orgRepos.length) : (countsData?.repoCount ?? userRepos.length);
+  const repoCount = isOrg
+    ? (org?.repoCount ?? orgRepos.length)
+    : (countsData?.repoCount ?? userRepos.length);
   const starredCount = isUser ? (countsData?.starredCount ?? starredRepos.length) : 0;
   const memberCount = isOrg ? (org?.memberCount ?? orgMembers.length) : 0;
   const teamCount = isOrg ? ((org as { teamCount?: number }).teamCount ?? orgTeams.length) : 0;
@@ -1068,12 +1145,12 @@ function ProfilePage() {
       <div className="container mx-auto max-w-7xl px-4 py-12">
         <div className="flex animate-pulse flex-col gap-12 lg:flex-row">
           <aside className="shrink-0 space-y-6 lg:w-80">
-            <div className="size-64 rounded-full bg-muted" />
-            <div className="h-8 w-48 bg-muted" />
-            <div className="h-4 w-full bg-muted" />
+            <div className="bg-muted size-64 rounded-full" />
+            <div className="bg-muted h-8 w-48" />
+            <div className="bg-muted h-4 w-full" />
           </aside>
           <div className="flex-1 space-y-6">
-            <div className="h-10 w-64 bg-muted" />
+            <div className="bg-muted h-10 w-64" />
             <TabSkeleton />
           </div>
         </div>
@@ -1095,10 +1172,10 @@ function ProfilePage() {
             <div className="sticky top-24 space-y-6">
               {/* Avatar with gradient ring */}
               <div className="relative mx-auto w-fit lg:mx-0">
-                <div className="absolute -inset-1 rounded-full bg-gradient-to-br from-primary/30 via-primary/10 to-transparent" />
+                <div className="from-primary/30 via-primary/10 absolute -inset-1 rounded-full bg-gradient-to-br to-transparent" />
                 <Avatar className="relative size-40 lg:size-64">
                   <AvatarImage src={org.avatarUrl || undefined} className="object-cover" />
-                  <AvatarFallback className="bg-muted text-4xl font-semibold text-muted-foreground">
+                  <AvatarFallback className="bg-muted text-muted-foreground text-4xl font-semibold">
                     <Building2 className="size-16" />
                   </AvatarFallback>
                 </Avatar>
@@ -1106,11 +1183,11 @@ function ProfilePage() {
 
               {/* Name and username */}
               <div className="space-y-2">
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-2xl font-bold tracking-tight">{org.displayName}</h1>
                   {org.isVerified && (
                     <span
-                      className="flex size-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground"
+                      className="bg-primary text-primary-foreground flex size-5 items-center justify-center rounded-full text-xs"
                       title="Verified"
                     >
                       <svg className="size-3" fill="currentColor" viewBox="0 0 20 20">
@@ -1123,7 +1200,7 @@ function ProfilePage() {
                     </span>
                   )}
                 </div>
-                <p className="text-lg text-muted-foreground">@{org.name}</p>
+                <p className="text-muted-foreground text-lg">@{org.name}</p>
               </div>
 
               {/* Report button */}
@@ -1149,7 +1226,7 @@ function ProfilePage() {
 
               {/* Bio */}
               {org.description && (
-                <p className="text-sm leading-relaxed text-muted-foreground">{org.description}</p>
+                <p className="text-muted-foreground text-sm leading-relaxed">{org.description}</p>
               )}
 
               {/* Metadata */}
@@ -1158,10 +1235,12 @@ function ProfilePage() {
                 {org.location && <ProfileInfoItem icon={MapPin}>{org.location}</ProfileInfoItem>}
                 {org.website && (
                   <ProfileInfoItem icon={Globe} href={org.website}>
-                    {org.website.replace(/^https?:\/\//, "")}
+                    {org.website.replace(/^https?:\/\//, '')}
                   </ProfileInfoItem>
                 )}
-                <ProfileInfoItem icon={Calendar}>Created {formatDate(org.createdAt)}</ProfileInfoItem>
+                <ProfileInfoItem icon={Calendar}>
+                  Created {formatDate(org.createdAt)}
+                </ProfileInfoItem>
               </div>
             </div>
           </aside>
@@ -1171,42 +1250,44 @@ function ProfilePage() {
             <Tabs
               value={tab}
               onValueChange={(value) =>
-                setTab(value === "repositories" ? null : (value as "members" | "teams" | "settings"))
+                setTab(
+                  value === 'repositories' ? null : (value as 'members' | 'teams' | 'settings'),
+                )
               }
             >
-              <TabsList className="mb-6 h-auto w-full justify-start rounded-none border-b border-border/50 bg-transparent p-0">
+              <TabsList className="border-border/50 mb-6 h-auto w-full justify-start rounded-none border-b bg-transparent p-0">
                 <TabsTrigger
                   value="repositories"
-                  className="gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:border-primary data-[selected]:bg-transparent data-[selected]:shadow-none"
+                  className="data-[selected]:border-primary gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:bg-transparent data-[selected]:shadow-none"
                 >
                   <BookOpen className="size-4" />
                   <span>Repositories</span>
                   {repoCount > 0 && (
-                    <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                    <span className="bg-muted ml-1 rounded-full px-2 py-0.5 text-xs font-medium">
                       {repoCount}
                     </span>
                   )}
                 </TabsTrigger>
                 <TabsTrigger
                   value="members"
-                  className="gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:border-primary data-[selected]:bg-transparent data-[selected]:shadow-none"
+                  className="data-[selected]:border-primary gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:bg-transparent data-[selected]:shadow-none"
                 >
                   <Users className="size-4" />
                   <span>Members</span>
                   {memberCount > 0 && (
-                    <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                    <span className="bg-muted ml-1 rounded-full px-2 py-0.5 text-xs font-medium">
                       {memberCount}
                     </span>
                   )}
                 </TabsTrigger>
                 <TabsTrigger
                   value="teams"
-                  className="gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:border-primary data-[selected]:bg-transparent data-[selected]:shadow-none"
+                  className="data-[selected]:border-primary gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:bg-transparent data-[selected]:shadow-none"
                 >
                   <Users className="size-4" />
                   <span>Teams</span>
                   {teamCount > 0 && (
-                    <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                    <span className="bg-muted ml-1 rounded-full px-2 py-0.5 text-xs font-medium">
                       {teamCount}
                     </span>
                   )}
@@ -1214,7 +1295,7 @@ function ProfilePage() {
                 {isOrgOwner && (
                   <TabsTrigger
                     value="settings"
-                    className="gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:border-primary data-[selected]:bg-transparent data-[selected]:shadow-none"
+                    className="data-[selected]:border-primary gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:bg-transparent data-[selected]:shadow-none"
                   >
                     <Settings className="size-4" />
                     <span>Settings</span>
@@ -1268,24 +1349,24 @@ function ProfilePage() {
           <div className="sticky top-24 space-y-6">
             {/* Avatar with gradient ring */}
             <div className="relative mx-auto w-fit lg:mx-0">
-              <div className="absolute -inset-1 rounded-full bg-gradient-to-br from-primary/40 via-primary/20 to-primary/5" />
+              <div className="from-primary/40 via-primary/20 to-primary/5 absolute -inset-1 rounded-full bg-gradient-to-br" />
               <Avatar className="relative size-40 lg:size-64">
                 <AvatarImage src={user.avatarUrl || undefined} className="object-cover" />
-                <AvatarFallback className="bg-muted text-5xl font-semibold text-muted-foreground">
-                  {(user.name || "?").charAt(0).toUpperCase()}
+                <AvatarFallback className="bg-muted text-muted-foreground text-5xl font-semibold">
+                  {(user.name || '?').charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
             </div>
 
             {/* Name and username */}
             <div className="space-y-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-2xl font-bold tracking-tight">{user.name || "Unknown"}</h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-bold tracking-tight">{user.name || 'Unknown'}</h1>
                 {user.pronouns && (
-                  <span className="text-sm text-muted-foreground">({user.pronouns})</span>
+                  <span className="text-muted-foreground text-sm">({user.pronouns})</span>
                 )}
               </div>
-              <p className="text-lg text-muted-foreground">@{user.username || "unknown"}</p>
+              <p className="text-muted-foreground text-lg">@{user.username || 'unknown'}</p>
             </div>
 
             {/* Report button */}
@@ -1304,13 +1385,15 @@ function ProfilePage() {
             <ReportDialog
               targetType="user"
               targetId={user.id}
-              targetName={user.name || "Unknown User"}
+              targetName={user.name || 'Unknown User'}
               open={isReportDialogOpen}
               onOpenChange={setIsReportDialogOpen}
             />
 
             {/* Bio */}
-            {user.bio && <p className="text-sm leading-relaxed text-muted-foreground">{user.bio}</p>}
+            {user.bio && (
+              <p className="text-muted-foreground text-sm leading-relaxed">{user.bio}</p>
+            )}
 
             {/* Metadata */}
             <div className="space-y-2.5">
@@ -1318,13 +1401,19 @@ function ProfilePage() {
               {user.location && <ProfileInfoItem icon={MapPin}>{user.location}</ProfileInfoItem>}
               {user.website && (
                 <ProfileInfoItem icon={Globe} href={user.website}>
-                  {user.website.replace(/^https?:\/\//, "")}
+                  {user.website.replace(/^https?:\/\//, '')}
                 </ProfileInfoItem>
               )}
               {user.lastActiveAt && (
-                <ProfileInfoItem icon={Activity}>Active {timeAgo(user.lastActiveAt)}</ProfileInfoItem>
+                <ProfileInfoItem icon={Activity}>
+                  Active {timeAgo(user.lastActiveAt)}
+                </ProfileInfoItem>
               )}
-              {user.createdAt && <ProfileInfoItem icon={Calendar}>Joined {formatDate(user.createdAt)}</ProfileInfoItem>}
+              {user.createdAt && (
+                <ProfileInfoItem icon={Calendar}>
+                  Joined {formatDate(user.createdAt)}
+                </ProfileInfoItem>
+              )}
             </div>
 
             {/* Social links */}
@@ -1337,7 +1426,11 @@ function ProfilePage() {
                   <SocialLink href={user.socialLinks.twitter} icon={XIcon} label="Twitter" />
                 )}
                 {user.socialLinks.linkedin && (
-                  <SocialLink href={user.socialLinks.linkedin} icon={LinkedInIcon} label="LinkedIn" />
+                  <SocialLink
+                    href={user.socialLinks.linkedin}
+                    icon={LinkedInIcon}
+                    label="LinkedIn"
+                  />
                 )}
                 {user.socialLinks.custom?.map((url, i) => (
                   <SocialLink key={i} href={url} icon={LinkIcon} label={`Link ${i + 1}`} />
@@ -1352,30 +1445,30 @@ function ProfilePage() {
           <Tabs
             value={tab}
             onValueChange={(value) =>
-              setTab(value === "repositories" ? null : (value as "starred" | "packages"))
+              setTab(value === 'repositories' ? null : (value as 'starred' | 'packages'))
             }
           >
-            <TabsList className="mb-6 h-auto w-full justify-start rounded-none border-b border-border/50 bg-transparent p-0">
+            <TabsList className="border-border/50 mb-6 h-auto w-full justify-start rounded-none border-b bg-transparent p-0">
               <TabsTrigger
                 value="repositories"
-                className="gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:border-primary data-[selected]:bg-transparent data-[selected]:shadow-none"
+                className="data-[selected]:border-primary gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:bg-transparent data-[selected]:shadow-none"
               >
                 <BookOpen className="size-4" />
                 <span>Repositories</span>
                 {repoCount > 0 && (
-                  <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                  <span className="bg-muted ml-1 rounded-full px-2 py-0.5 text-xs font-medium">
                     {repoCount}
                   </span>
                 )}
               </TabsTrigger>
               <TabsTrigger
                 value="starred"
-                className="gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:border-primary data-[selected]:bg-transparent data-[selected]:shadow-none"
+                className="data-[selected]:border-primary gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:bg-transparent data-[selected]:shadow-none"
               >
                 <Award className="size-4" />
                 <span>Starred</span>
                 {starredCount > 0 && (
-                  <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                  <span className="bg-muted ml-1 rounded-full px-2 py-0.5 text-xs font-medium">
                     {starredCount}
                   </span>
                 )}
@@ -1383,7 +1476,7 @@ function ProfilePage() {
               {currentUsername === username && (
                 <TabsTrigger
                   value="packages"
-                  className="gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:border-primary data-[selected]:bg-transparent data-[selected]:shadow-none"
+                  className="data-[selected]:border-primary gap-2 rounded-none border-b-2 border-transparent px-4 py-3 data-[selected]:bg-transparent data-[selected]:shadow-none"
                 >
                   <Package className="size-4" />
                   <span>Packages</span>
@@ -1401,7 +1494,7 @@ function ProfilePage() {
 
             {currentUsername === username && (
               <TabsContent value="packages" className="mt-0">
-                <PackagesTab username={username} enabled={tab === "packages"} />
+                <PackagesTab username={username} enabled={tab === 'packages'} />
               </TabsContent>
             )}
           </Tabs>

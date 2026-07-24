@@ -1,6 +1,6 @@
-import { z } from 'zod';
-import { normalizeUrl } from '@sigmagit/lib';
 import { isStrongSecret, MIN_SECRET_LENGTH } from './security/secrets';
+import { normalizeUrl } from '@sigmagit/lib';
+import { z } from 'zod';
 
 const devOrigins = ['http://localhost:3000', 'http://localhost:3001'];
 
@@ -45,16 +45,28 @@ const ProductionConfigSchema = z
     DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
     BETTER_AUTH_SECRET: z
       .string()
-      .refine((v) => isStrongSecret(v), `BETTER_AUTH_SECRET must be ≥${MIN_SECRET_LENGTH} chars and non-placeholder`),
+      .refine(
+        (v) => isStrongSecret(v),
+        `BETTER_AUTH_SECRET must be ≥${MIN_SECRET_LENGTH} chars and non-placeholder`,
+      ),
     INTERNAL_API_SECRET: z
       .string()
-      .refine((v) => isStrongSecret(v), `INTERNAL_API_SECRET must be ≥${MIN_SECRET_LENGTH} chars and non-placeholder`),
+      .refine(
+        (v) => isStrongSecret(v),
+        `INTERNAL_API_SECRET must be ≥${MIN_SECRET_LENGTH} chars and non-placeholder`,
+      ),
     REGISTRY_JWT_SECRET: z
       .string()
-      .refine((v) => isStrongSecret(v), `REGISTRY_JWT_SECRET must be ≥${MIN_SECRET_LENGTH} chars and non-placeholder`),
+      .refine(
+        (v) => isStrongSecret(v),
+        `REGISTRY_JWT_SECRET must be ≥${MIN_SECRET_LENGTH} chars and non-placeholder`,
+      ),
     WS_TICKET_SECRET: z
       .string()
-      .refine((v) => isStrongSecret(v), `WS_TICKET_SECRET must be ≥${MIN_SECRET_LENGTH} chars and non-placeholder`),
+      .refine(
+        (v) => isStrongSecret(v),
+        `WS_TICKET_SECRET must be ≥${MIN_SECRET_LENGTH} chars and non-placeholder`,
+      ),
     API_URL: z.string().min(1).refine(isHttpsUrl, 'API_URL must be HTTPS in production'),
     WEB_URL: z.string().min(1).refine(isHttpsUrl, 'WEB_URL must be HTTPS in production'),
     STORAGE_TYPE: z.enum(['s3', 'local']).default('s3'),
@@ -73,7 +85,11 @@ const ProductionConfigSchema = z
   .superRefine((data, ctx) => {
     if (data.STORAGE_TYPE === 's3') {
       if (!data.S3_ACCESS_KEY_ID) {
-        ctx.addIssue({ code: 'custom', message: 'S3_ACCESS_KEY_ID required when STORAGE_TYPE=s3', path: ['S3_ACCESS_KEY_ID'] });
+        ctx.addIssue({
+          code: 'custom',
+          message: 'S3_ACCESS_KEY_ID required when STORAGE_TYPE=s3',
+          path: ['S3_ACCESS_KEY_ID'],
+        });
       }
       if (!data.S3_SECRET_ACCESS_KEY) {
         ctx.addIssue({
@@ -83,10 +99,14 @@ const ProductionConfigSchema = z
         });
       }
       if (!data.S3_BUCKET && !data.S3_BUCKET_NAME) {
-        ctx.addIssue({ code: 'custom', message: 'S3_BUCKET required when STORAGE_TYPE=s3', path: ['S3_BUCKET'] });
+        ctx.addIssue({
+          code: 'custom',
+          message: 'S3_BUCKET required when STORAGE_TYPE=s3',
+          path: ['S3_BUCKET'],
+        });
       }
     }
-    const migrationsOn = data.ENABLE_MIGRATIONS !== 'false';
+    const migrationsOn = data.ENABLE_MIGRATIONS === 'true';
     if (migrationsOn && !isStrongSecret(data.MIGRATION_CREDENTIALS_KEY ?? '', 16)) {
       ctx.addIssue({
         code: 'custom',
@@ -143,6 +163,8 @@ export type AppConfig = {
   migrationCredentialsKey: string | null;
   runnerRegistrationSecret: string | null;
   trustProxy: boolean;
+  /** Comma-separated CIDRs of trusted reverse proxies (for client IP). */
+  trustedProxyCidrs: string[];
   isProduction: boolean;
   storage: {
     type: 's3' | 'local';
@@ -209,8 +231,12 @@ function loadConfig(): AppConfig {
   if (isProduction) {
     const result = ProductionConfigSchema.safeParse(process.env);
     if (!result.success) {
-      const messages = result.error.issues.map((i) => `${i.path.join('.') || 'config'}: ${i.message}`);
-      console.error('[Config] Production configuration invalid:\n' + messages.map((m) => `  - ${m}`).join('\n'));
+      const messages = result.error.issues.map(
+        (i) => `${i.path.join('.') || 'config'}: ${i.message}`,
+      );
+      console.error(
+        '[Config] Production configuration invalid:\n' + messages.map((m) => `  - ${m}`).join('\n'),
+      );
       throw new Error(`Invalid production configuration:\n${messages.join('\n')}`);
     }
   } else {
@@ -249,10 +275,15 @@ function loadConfig(): AppConfig {
     redisCacheUrl: process.env.REDIS_CACHE_URL || process.env.REDIS_URL,
     webhooksEnabled: process.env.ENABLE_WEBHOOKS !== 'false',
     discordWebhookSecret: process.env.DISCORD_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET || null,
-    enableMigrations: process.env.ENABLE_MIGRATIONS !== 'false',
+    // Migrations are opt-in (worker must be intentional).
+    enableMigrations: process.env.ENABLE_MIGRATIONS === 'true',
     migrationCredentialsKey: process.env.MIGRATION_CREDENTIALS_KEY || null,
     runnerRegistrationSecret: process.env.RUNNER_REGISTRATION_SECRET || null,
     trustProxy: process.env.TRUST_PROXY === 'true',
+    trustedProxyCidrs: (process.env.TRUSTED_PROXY_CIDRS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
     isProduction,
     storage: {
       type: (process.env.STORAGE_TYPE as 's3' | 'local') || 's3',

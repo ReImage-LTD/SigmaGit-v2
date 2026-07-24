@@ -8,7 +8,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { readdir, readFile, writeFile, unlink, mkdir, stat, rm } from 'node:fs/promises';
 import { withTimeout, MAX_LOCAL_LIST_KEYS } from './middleware/limits';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve, sep } from 'node:path';
 import { config } from './config';
 
 function isThrottleLikeError(error: unknown): boolean {
@@ -378,8 +378,27 @@ class LocalStorageBackend implements StorageBackend {
     return this.initPromise;
   }
 
+  /**
+   * Resolve key under basePath and reject path traversal outside the storage root.
+   */
   private getFullPath(key: string): string {
-    return join(this.basePath, key);
+    if (!key || typeof key !== 'string') {
+      throw new Error('Invalid storage key');
+    }
+    if (key.includes('\0') || key.includes('\\')) {
+      throw new Error('Invalid storage key');
+    }
+    // Normalize and reject .. segments
+    const normalizedKey = key.replace(/\/+/g, '/').replace(/^\//, '');
+    if (normalizedKey.split('/').some((seg) => seg === '..' || seg === '.')) {
+      throw new Error('Invalid storage key: path traversal');
+    }
+    const base = resolve(this.basePath);
+    const full = resolve(base, normalizedKey);
+    if (full !== base && !full.startsWith(base + sep)) {
+      throw new Error('Invalid storage key: escapes storage root');
+    }
+    return full;
   }
 
   async get(key: string): Promise<Buffer | null> {

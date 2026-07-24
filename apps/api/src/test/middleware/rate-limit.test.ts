@@ -1,12 +1,14 @@
-import { describe, expect, it } from 'bun:test';
 import {
   getClientIp,
   getRateLimitKey,
   hashApiKeyForRateLimit,
   isAuthenticated,
   isExcludedPath,
+  ipv4InCidr,
+  resolveForwardedClientIp,
   resolveRateLimitTier,
 } from '../../middleware/rate-limit';
+import { describe, expect, it } from 'bun:test';
 
 function mockContext(
   path: string,
@@ -14,7 +16,7 @@ function mockContext(
   options: {
     user?: { id: string } | null;
     headers?: Record<string, string | null>;
-  } = {}
+  } = {},
 ) {
   const headers = options.headers ?? {};
   return {
@@ -41,19 +43,19 @@ describe('resolveRateLimitTier', () => {
 
   it('uses search tier for GET /api/search', () => {
     expect(resolveRateLimitTier(mockContext('/api/search', 'GET', { user: { id: 'u1' } }))).toBe(
-      'search'
+      'search',
     );
   });
 
   it('uses write tier for mutations', () => {
     expect(
-      resolveRateLimitTier(mockContext('/api/repositories', 'POST', { user: { id: 'u1' } }))
+      resolveRateLimitTier(mockContext('/api/repositories', 'POST', { user: { id: 'u1' } })),
     ).toBe('write');
   });
 
   it('uses general tier for authenticated reads', () => {
     expect(resolveRateLimitTier(mockContext('/api/users/me', 'GET', { user: { id: 'u1' } }))).toBe(
-      'general'
+      'general',
     );
   });
 
@@ -98,6 +100,23 @@ describe('getClientIp', () => {
     if (process.env.TRUST_PROXY !== 'true') {
       expect(getClientIp(c)).toBe('unknown');
     }
+  });
+});
+
+describe('trusted proxy resolution', () => {
+  const trusted = ['172.16.0.0/12'];
+
+  it('rejects forwarding headers from an untrusted peer', () => {
+    expect(resolveForwardedClientIp('203.0.113.10', '1.2.3.4', trusted)).toBeNull();
+  });
+
+  it('selects the right-most untrusted hop behind a trusted peer', () => {
+    expect(resolveForwardedClientIp('172.18.0.5', '1.2.3.4, 172.18.0.4', trusted)).toBe('1.2.3.4');
+  });
+
+  it('matches IPv4 CIDRs exactly', () => {
+    expect(ipv4InCidr('172.31.255.255', '172.16.0.0/12')).toBe(true);
+    expect(ipv4InCidr('172.32.0.1', '172.16.0.0/12')).toBe(false);
   });
 });
 

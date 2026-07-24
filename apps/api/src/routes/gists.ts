@@ -1,22 +1,28 @@
-import { Hono } from "hono";
-import { db, gists, gistFiles, gistComments, gistStars, gistForks, users } from "@sigmagit/db";
-import { eq, and, sql, desc, count, or, ilike, inArray } from "drizzle-orm";
-import { authMiddleware, requireAuth, type AuthVariables } from "../middleware/auth";
-import { parseLimit, parseOffset } from "../lib/validation";
-import { randomUUID } from "crypto";
-import { writeRateLimit } from "../middleware/rate-limit";
+import { db, gists, gistFiles, gistComments, gistStars, gistForks, users } from '@sigmagit/db';
+import { eq, and, sql, desc, count, or, ilike, inArray } from 'drizzle-orm';
+import { requireAuth, type AuthVariables } from '../middleware/auth';
+import { canReadGist, canWriteGist } from '../lib/gist-access';
+import { parseLimit, parseOffset } from '../lib/validation';
+import { writeRateLimit } from '../middleware/rate-limit';
+import { Hono } from 'hono';
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
-const GIST_VISIBILITIES = ["public", "secret"] as const;
+const GIST_VISIBILITIES = ['public', 'secret'] as const;
 type GistVisibility = (typeof GIST_VISIBILITIES)[number];
 
 function isGistVisibility(value: unknown): value is GistVisibility {
-  return typeof value === "string" && GIST_VISIBILITIES.includes(value as GistVisibility);
+  return typeof value === 'string' && GIST_VISIBILITIES.includes(value as GistVisibility);
 }
 
 type GistFileInput = { id?: string; filename: string; content: string; language?: string };
 
+/** Load gist by id; return null if missing or not readable by user. */
+async function loadReadableGist(id: string, user: { id: string } | null | undefined) {
+  const [gist] = await db.select().from(gists).where(eq(gists.id, id));
+  if (!canReadGist(gist, user)) return null;
+  return gist;
+}
 
 function groupFilesByGistId(files: Array<{ gistId: string }>) {
   const filesByGistId = new Map<string, Array<(typeof files)[number]>>();
@@ -42,7 +48,9 @@ async function attachFilesToGists<T extends { id: string }>(gistsList: T[]) {
   }));
 }
 
-async function attachFilesAndOwnersToGists<T extends { id: string; ownerId: string }>(gistsList: T[]) {
+async function attachFilesAndOwnersToGists<T extends { id: string; ownerId: string }>(
+  gistsList: T[],
+) {
   if (gistsList.length === 0) {
     return gistsList.map((gist) => ({ ...gist, files: [] as unknown[], owner: null as unknown }));
   }
@@ -73,17 +81,17 @@ async function attachFilesAndOwnersToGists<T extends { id: string; ownerId: stri
   }));
 }
 
-app.post("/api/gists", requireAuth, writeRateLimit, async (c) => {
-  const user = c.get("user")!;
+app.post('/api/gists', requireAuth, writeRateLimit, async (c) => {
+  const user = c.get('user')!;
   const body = await c.req.json();
   const { description, visibility, files } = body;
 
-  const visibilityVal = visibility ?? "public";
+  const visibilityVal = visibility ?? 'public';
   if (!isGistVisibility(visibilityVal)) {
-    return c.json({ error: "Invalid visibility; must be public or secret" }, 400);
+    return c.json({ error: 'Invalid visibility; must be public or secret' }, 400);
   }
   if (!Array.isArray(files)) {
-    return c.json({ error: "files must be an array" }, 400);
+    return c.json({ error: 'files must be an array' }, 400);
   }
 
   const [gist] = await db
@@ -107,22 +115,19 @@ app.post("/api/gists", requireAuth, writeRateLimit, async (c) => {
         size: file.content.length,
         createdAt: new Date(),
         updatedAt: new Date(),
-      }))
+      })),
     );
   }
 
-  const filesList = await db
-    .select()
-    .from(gistFiles)
-    .where(eq(gistFiles.gistId, gist.id));
+  const filesList = await db.select().from(gistFiles).where(eq(gistFiles.gistId, gist.id));
 
   return c.json({ ...gist, files: filesList || [] });
 });
 
-app.get("/api/gists", requireAuth, async (c) => {
-  const user = c.get("user")!;
-  const limit = parseLimit(c.req.query("limit"), 30, 100);
-  const offset = parseOffset(c.req.query("offset"), 0);
+app.get('/api/gists', requireAuth, async (c) => {
+  const user = c.get('user')!;
+  const limit = parseLimit(c.req.query('limit'), 30, 100);
+  const offset = parseOffset(c.req.query('offset'), 0);
 
   const gistsList = await db
     .select()
@@ -137,14 +142,14 @@ app.get("/api/gists", requireAuth, async (c) => {
   return c.json({ gists: gistsWithFiles });
 });
 
-app.get("/api/gists/public", async (c) => {
-  const limit = parseLimit(c.req.query("limit"), 20);
-  const offset = parseOffset(c.req.query("offset"), 0);
+app.get('/api/gists/public', async (c) => {
+  const limit = parseLimit(c.req.query('limit'), 20);
+  const offset = parseOffset(c.req.query('offset'), 0);
 
   const gistsList = await db
     .select()
     .from(gists)
-    .where(eq(gists.visibility, "public"))
+    .where(eq(gists.visibility, 'public'))
     .orderBy(desc(gists.updatedAt))
     .limit(limit + 1)
     .offset(offset);
@@ -157,59 +162,38 @@ app.get("/api/gists/public", async (c) => {
   return c.json({ gists: gistsWithFilesAndOwners, hasMore });
 });
 
-app.get("/api/gists/:id", async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user");
+app.get('/api/gists/:id', async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
 
-  const [gist] = await db
-    .select()
-    .from(gists)
-    .where(eq(gists.id, id));
-
+  const gist = await loadReadableGist(id, user);
   if (!gist) {
-    return c.json({ error: "Gist not found" }, 404);
+    return c.json({ error: 'Gist not found' }, 404);
   }
 
-  if (gist.visibility === "secret" && gist.ownerId !== user?.id) {
-    return c.json({ error: "Gist not found" }, 404);
-  }
+  const [owner] = await db.select().from(users).where(eq(users.id, gist.ownerId));
 
-  const [owner] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, gist.ownerId));
-
-  const filesList = await db
-    .select()
-    .from(gistFiles)
-    .where(eq(gistFiles.gistId, gist.id));
+  const filesList = await db.select().from(gistFiles).where(eq(gistFiles.gistId, gist.id));
 
   return c.json({ ...gist, owner, files: filesList || [] });
 });
 
-app.patch("/api/gists/:id", requireAuth, async (c) => {
-  const user = c.get("user")!;
-  const id = c.req.param("id");
+app.patch('/api/gists/:id', requireAuth, async (c) => {
+  const user = c.get('user')!;
+  const id = c.req.param('id');
   const body = await c.req.json();
 
-  const [gist] = await db
-    .select()
-    .from(gists)
-    .where(eq(gists.id, id));
+  const [gist] = await db.select().from(gists).where(eq(gists.id, id));
 
-  if (!gist) {
-    return c.json({ error: "Gist not found" }, 404);
-  }
-
-  if (gist.ownerId !== user.id) {
-    return c.json({ error: "Forbidden" }, 403);
+  if (!canWriteGist(gist, user)) {
+    return c.json({ error: 'Gist not found' }, 404);
   }
 
   const updates: Record<string, unknown> = {};
   if (body.description !== undefined) updates.description = body.description;
   if (body.visibility !== undefined) {
     if (!isGistVisibility(body.visibility)) {
-      return c.json({ error: "Invalid visibility; must be public or secret" }, 400);
+      return c.json({ error: 'Invalid visibility; must be public or secret' }, 400);
     }
     updates.visibility = body.visibility;
   }
@@ -244,29 +228,25 @@ app.patch("/api/gists/:id", requireAuth, async (c) => {
             .where(
               and(
                 eq(gistFiles.gistId, id),
-                file.id ? eq(gistFiles.id, file.id) : eq(gistFiles.filename, file.filename)
-              )
+                file.id ? eq(gistFiles.id, file.id) : eq(gistFiles.filename, file.filename),
+              ),
             );
-        })
+        }),
     );
   }
 
   const [updated] = await db.select().from(gists).where(eq(gists.id, id));
-  const filesList = await db
-    .select()
-    .from(gistFiles)
-    .where(eq(gistFiles.gistId, id));
+  const filesList = await db.select().from(gistFiles).where(eq(gistFiles.gistId, id));
 
   return c.json({ ...updated, files: filesList || [] });
 });
 
-app.delete("/api/gists/:id", requireAuth, async (c) => {
-  const user = c.get("user")!;
-  const id = c.req.param("id");
+app.delete('/api/gists/:id', requireAuth, async (c) => {
+  const user = c.get('user')!;
+  const id = c.req.param('id');
 
   const [gist] = await db.select().from(gists).where(eq(gists.id, id));
-  if (!gist) return c.json({ error: "Gist not found" }, 404);
-  if (gist.ownerId !== user.id) return c.json({ error: "Forbidden" }, 403);
+  if (!canWriteGist(gist, user)) return c.json({ error: 'Gist not found' }, 404);
 
   await db.delete(gists).where(eq(gists.id, id));
   return c.json({ success: true });
@@ -275,70 +255,45 @@ app.delete("/api/gists/:id", requireAuth, async (c) => {
 // POST /api/gists/:id/delete — same as DELETE but avoids CORS preflight.
 // A simple POST (no body, no custom headers) uses session cookie for auth,
 // which means no preflight request is triggered at all.
-app.post("/api/gists/:id/delete", requireAuth, async (c) => {
-  const user = c.get("user")!;
-  const id = c.req.param("id");
+app.post('/api/gists/:id/delete', requireAuth, async (c) => {
+  const user = c.get('user')!;
+  const id = c.req.param('id');
 
   const [gist] = await db.select().from(gists).where(eq(gists.id, id));
-  if (!gist) return c.json({ error: "Gist not found" }, 404);
-  if (gist.ownerId !== user.id) return c.json({ error: "Forbidden" }, 403);
+  if (!canWriteGist(gist, user)) return c.json({ error: 'Gist not found' }, 404);
 
   await db.delete(gists).where(eq(gists.id, id));
   return c.json({ success: true });
 });
 
-app.get("/api/gists/:id/revisions", async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user");
+app.get('/api/gists/:id/revisions', async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
 
-  const [gist] = await db
-    .select()
-    .from(gists)
-    .where(eq(gists.id, id));
-
+  const gist = await loadReadableGist(id, user);
   if (!gist) {
-    return c.json({ error: "Gist not found" }, 404);
-  }
-
-  if (gist.visibility === "secret" && gist.ownerId !== user?.id) {
-    return c.json({ error: "Gist not found" }, 404);
+    return c.json({ error: 'Gist not found' }, 404);
   }
 
   return c.json({ revisions: [] });
 });
 
-app.post("/api/gists/:id/star", requireAuth, async (c) => {
-  const user = c.get("user")!;
-  const id = c.req.param("id");
+app.post('/api/gists/:id/star', requireAuth, async (c) => {
+  const user = c.get('user')!;
+  const id = c.req.param('id');
 
-  const [gist] = await db
-    .select()
-    .from(gists)
-    .where(eq(gists.id, id));
-
+  const gist = await loadReadableGist(id, user);
   if (!gist) {
-    return c.json({ error: "Gist not found" }, 404);
+    return c.json({ error: 'Gist not found' }, 404);
   }
 
   const [existing] = await db
     .select()
     .from(gistStars)
-    .where(
-      and(
-        eq(gistStars.userId, user.id),
-        eq(gistStars.gistId, id)
-      )
-    );
+    .where(and(eq(gistStars.userId, user.id), eq(gistStars.gistId, id)));
 
   if (existing) {
-    await db
-      .delete(gistStars)
-      .where(
-        and(
-          eq(gistStars.userId, user.id),
-          eq(gistStars.gistId, id)
-        )
-      );
+    await db.delete(gistStars).where(and(eq(gistStars.userId, user.id), eq(gistStars.gistId, id)));
     return c.json({ starred: false });
   }
 
@@ -351,72 +306,79 @@ app.post("/api/gists/:id/star", requireAuth, async (c) => {
   return c.json({ starred: true });
 });
 
-app.get("/api/gists/:id/star", requireAuth, async (c) => {
-  const user = c.get("user")!;
-  const id = c.req.param("id");
+app.get('/api/gists/:id/star', requireAuth, async (c) => {
+  const user = c.get('user')!;
+  const id = c.req.param('id');
 
   const [starred] = await db
     .select()
     .from(gistStars)
-    .where(
-      and(
-        eq(gistStars.userId, user.id),
-        eq(gistStars.gistId, id)
-      )
-    );
+    .where(and(eq(gistStars.userId, user.id), eq(gistStars.gistId, id)));
 
   return c.json({ starred: !!starred });
 });
 
-app.post("/api/gists/:id/fork", requireAuth, async (c) => {
-  const user = c.get("user")!;
-  const id = c.req.param("id");
+app.post('/api/gists/:id/fork', requireAuth, async (c) => {
+  const user = c.get('user')!;
+  const id = c.req.param('id');
 
-  const [gist] = await db
-    .select()
-    .from(gists)
-    .where(eq(gists.id, id));
-
+  // Secret gists may only be forked by the owner (same as read access).
+  const gist = await loadReadableGist(id, user);
   if (!gist) {
-    return c.json({ error: "Gist not found" }, 404);
+    return c.json({ error: 'Gist not found' }, 404);
   }
+
+  // Create a new secret gist owned by the forker with copied files.
+  const [forkedGist] = await db
+    .insert(gists)
+    .values({
+      ownerId: user.id,
+      description: gist.description,
+      visibility: gist.visibility === 'secret' ? 'secret' : 'public',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .returning();
 
   const [fork] = await db
     .insert(gistForks)
     .values({
-      gistId: id,
+      gistId: forkedGist.id,
       forkedFromId: id,
       ownerId: user.id,
       createdAt: new Date(),
     })
     .returning();
 
-  const filesList = await db
-    .select()
-    .from(gistFiles)
-    .where(eq(gistFiles.gistId, id));
+  const filesList = await db.select().from(gistFiles).where(eq(gistFiles.gistId, id));
 
   if (filesList.length) {
     await db.insert(gistFiles).values(
       filesList.map((file) => ({
-        gistId: fork.id,
+        gistId: forkedGist.id,
         filename: file.filename,
         content: file.content,
         language: file.language,
         size: file.size,
         createdAt: new Date(),
         updatedAt: new Date(),
-      }))
+      })),
     );
   }
 
-  return c.json({ id: fork.id });
+  return c.json({ id: forkedGist.id, forkId: fork.id });
 });
 
-app.get("/api/gists/:id/forks", async (c) => {
-  const id = c.req.param("id");
-  const limit = parseLimit(c.req.query("limit"), 20);
-  const offset = parseOffset(c.req.query("offset"), 0);
+app.get('/api/gists/:id/forks', async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
+  const limit = parseLimit(c.req.query('limit'), 20);
+  const offset = parseOffset(c.req.query('offset'), 0);
+
+  const gist = await loadReadableGist(id, user);
+  if (!gist) {
+    return c.json({ error: 'Gist not found' }, 404);
+  }
 
   const forksList = await db
     .select({
@@ -436,21 +398,13 @@ app.get("/api/gists/:id/forks", async (c) => {
   return c.json({ forks: forksData, hasMore });
 });
 
-app.get("/api/gists/:id/comments", async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user");
+app.get('/api/gists/:id/comments', async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
 
-  const [gist] = await db
-    .select()
-    .from(gists)
-    .where(eq(gists.id, id));
-
+  const gist = await loadReadableGist(id, user);
   if (!gist) {
-    return c.json({ error: "Gist not found" }, 404);
-  }
-
-  if (gist.visibility === "secret" && gist.ownerId !== user?.id) {
-    return c.json({ error: "Gist not found" }, 404);
+    return c.json({ error: 'Gist not found' }, 404);
   }
 
   const comments = await db
@@ -466,19 +420,19 @@ app.get("/api/gists/:id/comments", async (c) => {
   return c.json({ comments });
 });
 
-app.post("/api/gists/:id/comments", requireAuth, async (c) => {
-  const user = c.get("user")!;
-  const id = c.req.param("id");
+app.post('/api/gists/:id/comments', requireAuth, async (c) => {
+  const user = c.get('user')!;
+  const id = c.req.param('id');
   const body = await c.req.json();
   const { body: commentBody } = body;
 
-  const [gist] = await db
-    .select()
-    .from(gists)
-    .where(eq(gists.id, id));
-
+  const gist = await loadReadableGist(id, user);
   if (!gist) {
-    return c.json({ error: "Gist not found" }, 404);
+    return c.json({ error: 'Gist not found' }, 404);
+  }
+
+  if (typeof commentBody !== 'string' || !commentBody.trim() || commentBody.length > 65536) {
+    return c.json({ error: 'Comment body is required (max 64KB)' }, 400);
   }
 
   const [comment] = await db
@@ -492,37 +446,26 @@ app.post("/api/gists/:id/comments", requireAuth, async (c) => {
     })
     .returning();
 
-  const [author] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, user.id));
+  const [author] = await db.select().from(users).where(eq(users.id, user.id));
 
   return c.json({ ...comment, author });
 });
 
-app.get("/api/users/:username/gists", async (c) => {
-  const username = c.req.param("username");
-  const limit = parseLimit(c.req.query("limit"), 20);
-  const offset = parseOffset(c.req.query("offset"), 0);
+app.get('/api/users/:username/gists', async (c) => {
+  const username = c.req.param('username');
+  const limit = parseLimit(c.req.query('limit'), 20);
+  const offset = parseOffset(c.req.query('offset'), 0);
 
-  const [user] = await db
-    .select()
-    .from(users)
-    .where(eq(users.username, username));
+  const [user] = await db.select().from(users).where(eq(users.username, username));
 
   if (!user) {
-    return c.json({ error: "User not found" }, 404);
+    return c.json({ error: 'User not found' }, 404);
   }
 
   const gistsList = await db
     .select()
     .from(gists)
-    .where(
-      and(
-        eq(gists.ownerId, user.id),
-        eq(gists.visibility, "public")
-      )
-    )
+    .where(and(eq(gists.ownerId, user.id), eq(gists.visibility, 'public')))
     .orderBy(desc(gists.updatedAt))
     .limit(limit + 1)
     .offset(offset);

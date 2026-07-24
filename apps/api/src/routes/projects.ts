@@ -1,4 +1,3 @@
-import { Hono } from "hono";
 import {
   db,
   users,
@@ -8,11 +7,12 @@ import {
   projectItems,
   issues,
   pullRequests,
-} from "@sigmagit/db";
-import { eq, sql, and, asc, inArray } from "drizzle-orm";
-import { requireAuth, type AuthVariables } from "../middleware/auth";
-import { canManageRepository } from "../lib/access";
-import { resolveRepositoryWithAccess } from "../lib/repo-helpers";
+} from '@sigmagit/db';
+import { requireAuth, type AuthVariables } from '../middleware/auth';
+import { resolveRepositoryWithAccess } from '../lib/repo-helpers';
+import { eq, sql, and, asc, inArray } from 'drizzle-orm';
+import { canManageRepository } from '../lib/access';
+import { Hono } from 'hono';
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -28,7 +28,7 @@ async function enrichProjectItem(item: any) {
       });
       return {
         id: item.id,
-        type: "issue" as const,
+        type: 'issue' as const,
         position: item.position,
         issue: {
           id: issue.id,
@@ -52,7 +52,7 @@ async function enrichProjectItem(item: any) {
       });
       return {
         id: item.id,
-        type: "pull_request" as const,
+        type: 'pull_request' as const,
         position: item.position,
         pullRequest: {
           id: pr.id,
@@ -68,7 +68,7 @@ async function enrichProjectItem(item: any) {
   if (item.noteContent) {
     return {
       id: item.id,
-      type: "note" as const,
+      type: 'note' as const,
       position: item.position,
       noteContent: item.noteContent,
     };
@@ -77,14 +77,14 @@ async function enrichProjectItem(item: any) {
   return null;
 }
 
-app.get("/api/repositories/:owner/:name/projects", async (c) => {
-  const owner = c.req.param("owner");
-  const name = c.req.param("name");
-  const currentUser = c.get("user");
+app.get('/api/repositories/:owner/:name/projects', async (c) => {
+  const owner = c.req.param('owner');
+  const name = c.req.param('name');
+  const currentUser = c.get('user');
 
   const repoAccess = await resolveRepositoryWithAccess(owner, name, currentUser);
   if (!repoAccess) {
-    return c.json({ error: "Repository not found" }, 404);
+    return c.json({ error: 'Repository not found' }, 404);
   }
 
   const projectList = await db
@@ -96,23 +96,23 @@ app.get("/api/repositories/:owner/:name/projects", async (c) => {
   return c.json({ projects: projectList });
 });
 
-app.post("/api/repositories/:owner/:name/projects", requireAuth, async (c) => {
-  const owner = c.req.param("owner");
-  const name = c.req.param("name");
-  const user = c.get("user")!;
+app.post('/api/repositories/:owner/:name/projects', requireAuth, async (c) => {
+  const owner = c.req.param('owner');
+  const name = c.req.param('name');
+  const user = c.get('user')!;
   const body = await c.req.json<{ name: string; description?: string }>();
 
   const repoAccess = await resolveRepositoryWithAccess(owner, name, user);
   if (!repoAccess) {
-    return c.json({ error: "Repository not found" }, 404);
+    return c.json({ error: 'Repository not found' }, 404);
   }
 
   if (!(await canManageRepository(repoAccess, user))) {
-    return c.json({ error: "Only repo owner can create projects" }, 403);
+    return c.json({ error: 'Only repo owner can create projects' }, 403);
   }
 
   if (!body.name?.trim()) {
-    return c.json({ error: "Project name is required" }, 400);
+    return c.json({ error: 'Project name is required' }, 400);
   }
 
   const [inserted] = await db
@@ -124,7 +124,7 @@ app.post("/api/repositories/:owner/:name/projects", requireAuth, async (c) => {
     })
     .returning();
 
-  const defaultColumns = ["To Do", "In Progress", "Done"];
+  const defaultColumns = ['To Do', 'In Progress', 'Done'];
   for (let i = 0; i < defaultColumns.length; i++) {
     await db.insert(projectColumns).values({
       projectId: inserted.id,
@@ -136,16 +136,16 @@ app.post("/api/repositories/:owner/:name/projects", requireAuth, async (c) => {
   return c.json(inserted);
 });
 
-app.get("/api/projects/:id", async (c) => {
-  const id = c.req.param("id");
-  const currentUser = c.get("user");
+app.get('/api/projects/:id', async (c) => {
+  const id = c.req.param('id');
+  const currentUser = c.get('user');
 
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, id),
   });
 
   if (!project) {
-    return c.json({ error: "Project not found" }, 404);
+    return c.json({ error: 'Project not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
@@ -153,11 +153,11 @@ app.get("/api/projects/:id", async (c) => {
   });
 
   if (!repo) {
-    return c.json({ error: "Repository not found" }, 404);
+    return c.json({ error: 'Repository not found' }, 404);
   }
 
   if (!(await canAccessRepository(repo, currentUser))) {
-    return c.json({ error: "Project not found" }, 404);
+    return c.json({ error: 'Project not found' }, 404);
   }
 
   const columns = await db
@@ -188,22 +188,41 @@ app.get("/api/projects/:id", async (c) => {
   const prIds = [...new Set(allItems.filter((i) => i.pullRequestId).map((i) => i.pullRequestId!))];
 
   const [issueRows, prRows, usersById] = await Promise.all([
-    issueIds.length === 0 ? Promise.resolve([]) : db.select().from(issues).where(inArray(issues.id, issueIds)),
-    prIds.length === 0 ? Promise.resolve([]) : db.select().from(pullRequests).where(inArray(pullRequests.id, prIds)),
+    issueIds.length === 0
+      ? Promise.resolve([])
+      : db.select().from(issues).where(inArray(issues.id, issueIds)),
+    prIds.length === 0
+      ? Promise.resolve([])
+      : db.select().from(pullRequests).where(inArray(pullRequests.id, prIds)),
     (async () => {
       const authorIds: string[] = [];
       if (issueIds.length) {
-        const issuesAuth = await db.select({ authorId: issues.authorId }).from(issues).where(inArray(issues.id, issueIds));
+        const issuesAuth = await db
+          .select({ authorId: issues.authorId })
+          .from(issues)
+          .where(inArray(issues.id, issueIds));
         authorIds.push(...issuesAuth.map((r) => r.authorId));
       }
       if (prIds.length) {
-        const prsAuth = await db.select({ authorId: pullRequests.authorId }).from(pullRequests).where(inArray(pullRequests.id, prIds));
+        const prsAuth = await db
+          .select({ authorId: pullRequests.authorId })
+          .from(pullRequests)
+          .where(inArray(pullRequests.id, prIds));
         authorIds.push(...prsAuth.map((r) => r.authorId));
       }
       const uniq = [...new Set(authorIds)];
-      if (uniq.length === 0) return new Map<string, { id: string; username: string; name: string; avatarUrl: string | null }>();
+      if (uniq.length === 0)
+        return new Map<
+          string,
+          { id: string; username: string; name: string; avatarUrl: string | null }
+        >();
       const rows = await db
-        .select({ id: users.id, username: users.username, name: users.name, avatarUrl: users.avatarUrl })
+        .select({
+          id: users.id,
+          username: users.username,
+          name: users.name,
+          avatarUrl: users.avatarUrl,
+        })
         .from(users)
         .where(inArray(users.id, uniq));
       return new Map(rows.map((u) => [u.id, u]));
@@ -213,23 +232,82 @@ app.get("/api/projects/:id", async (c) => {
   const issuesById = new Map(issueRows.map((i) => [i.id, i]));
   const prsById = new Map(prRows.map((p) => [p.id, p]));
 
-  function enrichItem(item: typeof projectItems.$inferSelect): { id: string; type: "issue"; position: number; issue: { id: string; number: number; title: string; state: string; author: { id: string; username: string; name: string; avatarUrl: string | null } } } | { id: string; type: "pull_request"; position: number; pullRequest: { id: string; number: number; title: string; state: string; author: { id: string; username: string; name: string; avatarUrl: string | null } } } | { id: string; type: "note"; position: number; noteContent: string | null } | null {
+  function enrichItem(
+    item: typeof projectItems.$inferSelect,
+  ):
+    | {
+        id: string;
+        type: 'issue';
+        position: number;
+        issue: {
+          id: string;
+          number: number;
+          title: string;
+          state: string;
+          author: { id: string; username: string; name: string; avatarUrl: string | null };
+        };
+      }
+    | {
+        id: string;
+        type: 'pull_request';
+        position: number;
+        pullRequest: {
+          id: string;
+          number: number;
+          title: string;
+          state: string;
+          author: { id: string; username: string; name: string; avatarUrl: string | null };
+        };
+      }
+    | { id: string; type: 'note'; position: number; noteContent: string | null }
+    | null {
     if (item.issueId) {
       const issue = issuesById.get(item.issueId);
       if (issue) {
-        const author = usersById.get(issue.authorId) ?? { id: issue.authorId, username: "unknown", name: "Unknown", avatarUrl: null };
-        return { id: item.id, type: "issue" as const, position: item.position, issue: { id: issue.id, number: issue.number, title: issue.title, state: issue.state, author } };
+        const author = usersById.get(issue.authorId) ?? {
+          id: issue.authorId,
+          username: 'unknown',
+          name: 'Unknown',
+          avatarUrl: null,
+        };
+        return {
+          id: item.id,
+          type: 'issue' as const,
+          position: item.position,
+          issue: {
+            id: issue.id,
+            number: issue.number,
+            title: issue.title,
+            state: issue.state,
+            author,
+          },
+        };
       }
     }
     if (item.pullRequestId) {
       const pr = prsById.get(item.pullRequestId);
       if (pr) {
-        const author = usersById.get(pr.authorId) ?? { id: pr.authorId, username: "unknown", name: "Unknown", avatarUrl: null };
-        return { id: item.id, type: "pull_request" as const, position: item.position, pullRequest: { id: pr.id, number: pr.number, title: pr.title, state: pr.state, author } };
+        const author = usersById.get(pr.authorId) ?? {
+          id: pr.authorId,
+          username: 'unknown',
+          name: 'Unknown',
+          avatarUrl: null,
+        };
+        return {
+          id: item.id,
+          type: 'pull_request' as const,
+          position: item.position,
+          pullRequest: { id: pr.id, number: pr.number, title: pr.title, state: pr.state, author },
+        };
       }
     }
     if (item.noteContent != null) {
-      return { id: item.id, type: "note" as const, position: item.position, noteContent: item.noteContent };
+      return {
+        id: item.id,
+        type: 'note' as const,
+        position: item.position,
+        noteContent: item.noteContent,
+      };
     }
     return null;
   }
@@ -243,7 +321,9 @@ app.get("/api/projects/:id", async (c) => {
 
   const columnsWithItems = columns.map((column) => {
     const items = (itemsByColumnId.get(column.id) ?? []).sort((a, b) => a.position - b.position);
-    const enrichedItems = items.map(enrichItem).filter((x): x is NonNullable<typeof x> => x != null);
+    const enrichedItems = items
+      .map(enrichItem)
+      .filter((x): x is NonNullable<typeof x> => x != null);
     return { id: column.id, name: column.name, position: column.position, items: enrichedItems };
   });
 
@@ -257,9 +337,9 @@ app.get("/api/projects/:id", async (c) => {
   });
 });
 
-app.patch("/api/projects/:id", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.patch('/api/projects/:id', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{ name?: string; description?: string }>();
 
   const project = await db.query.projects.findFirst({
@@ -267,7 +347,7 @@ app.patch("/api/projects/:id", requireAuth, async (c) => {
   });
 
   if (!project) {
-    return c.json({ error: "Project not found" }, 404);
+    return c.json({ error: 'Project not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
@@ -275,7 +355,7 @@ app.patch("/api/projects/:id", requireAuth, async (c) => {
   });
 
   if (user.id !== repo?.ownerId) {
-    return c.json({ error: "Only repo owner can update projects" }, 403);
+    return c.json({ error: 'Only repo owner can update projects' }, 403);
   }
 
   const updates: Record<string, any> = { updatedAt: new Date() };
@@ -287,16 +367,16 @@ app.patch("/api/projects/:id", requireAuth, async (c) => {
   return c.json({ success: true });
 });
 
-app.delete("/api/projects/:id", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.delete('/api/projects/:id', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
 
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, id),
   });
 
   if (!project) {
-    return c.json({ error: "Project not found" }, 404);
+    return c.json({ error: 'Project not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
@@ -304,7 +384,7 @@ app.delete("/api/projects/:id", requireAuth, async (c) => {
   });
 
   if (user.id !== repo?.ownerId) {
-    return c.json({ error: "Only repo owner can delete projects" }, 403);
+    return c.json({ error: 'Only repo owner can delete projects' }, 403);
   }
 
   await db.delete(projects).where(eq(projects.id, id));
@@ -312,9 +392,9 @@ app.delete("/api/projects/:id", requireAuth, async (c) => {
   return c.json({ success: true });
 });
 
-app.post("/api/projects/:id/columns", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.post('/api/projects/:id/columns', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{ name: string }>();
 
   const project = await db.query.projects.findFirst({
@@ -322,7 +402,7 @@ app.post("/api/projects/:id/columns", requireAuth, async (c) => {
   });
 
   if (!project) {
-    return c.json({ error: "Project not found" }, 404);
+    return c.json({ error: 'Project not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
@@ -330,7 +410,7 @@ app.post("/api/projects/:id/columns", requireAuth, async (c) => {
   });
 
   if (user.id !== repo?.ownerId) {
-    return c.json({ error: "Only repo owner can add columns" }, 403);
+    return c.json({ error: 'Only repo owner can add columns' }, 403);
   }
 
   const [maxPosition] = await db
@@ -350,9 +430,9 @@ app.post("/api/projects/:id/columns", requireAuth, async (c) => {
   return c.json(inserted);
 });
 
-app.patch("/api/projects/columns/:id", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.patch('/api/projects/columns/:id', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{ name?: string; position?: number }>();
 
   const column = await db.query.projectColumns.findFirst({
@@ -360,7 +440,7 @@ app.patch("/api/projects/columns/:id", requireAuth, async (c) => {
   });
 
   if (!column) {
-    return c.json({ error: "Column not found" }, 404);
+    return c.json({ error: 'Column not found' }, 404);
   }
 
   const project = await db.query.projects.findFirst({
@@ -374,7 +454,7 @@ app.patch("/api/projects/columns/:id", requireAuth, async (c) => {
     : null;
 
   if (user.id !== repo?.ownerId) {
-    return c.json({ error: "Only repo owner can update columns" }, 403);
+    return c.json({ error: 'Only repo owner can update columns' }, 403);
   }
 
   const updates: Record<string, any> = {};
@@ -388,16 +468,16 @@ app.patch("/api/projects/columns/:id", requireAuth, async (c) => {
   return c.json({ success: true });
 });
 
-app.delete("/api/projects/columns/:id", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.delete('/api/projects/columns/:id', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
 
   const column = await db.query.projectColumns.findFirst({
     where: eq(projectColumns.id, id),
   });
 
   if (!column) {
-    return c.json({ error: "Column not found" }, 404);
+    return c.json({ error: 'Column not found' }, 404);
   }
 
   const project = await db.query.projects.findFirst({
@@ -411,7 +491,7 @@ app.delete("/api/projects/columns/:id", requireAuth, async (c) => {
     : null;
 
   if (user.id !== repo?.ownerId) {
-    return c.json({ error: "Only repo owner can delete columns" }, 403);
+    return c.json({ error: 'Only repo owner can delete columns' }, 403);
   }
 
   await db.delete(projectColumns).where(eq(projectColumns.id, id));
@@ -419,9 +499,9 @@ app.delete("/api/projects/columns/:id", requireAuth, async (c) => {
   return c.json({ success: true });
 });
 
-app.post("/api/projects/:id/items", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.post('/api/projects/:id/items', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{
     columnId: string;
     issueId?: string;
@@ -434,7 +514,7 @@ app.post("/api/projects/:id/items", requireAuth, async (c) => {
   });
 
   if (!project) {
-    return c.json({ error: "Project not found" }, 404);
+    return c.json({ error: 'Project not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
@@ -442,15 +522,15 @@ app.post("/api/projects/:id/items", requireAuth, async (c) => {
   });
 
   if (user.id !== repo?.ownerId) {
-    return c.json({ error: "Only repo owner can add items" }, 403);
+    return c.json({ error: 'Only repo owner can add items' }, 403);
   }
 
   if (!body.columnId) {
-    return c.json({ error: "Column is required" }, 400);
+    return c.json({ error: 'Column is required' }, 400);
   }
 
   if (!body.issueId && !body.pullRequestId && !body.noteContent) {
-    return c.json({ error: "Must provide an issue, PR, or note content" }, 400);
+    return c.json({ error: 'Must provide an issue, PR, or note content' }, 400);
   }
 
   const [maxPosition] = await db
@@ -475,9 +555,9 @@ app.post("/api/projects/:id/items", requireAuth, async (c) => {
   return c.json(enriched);
 });
 
-app.patch("/api/projects/items/:id", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.patch('/api/projects/items/:id', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{ columnId?: string; position?: number; noteContent?: string }>();
 
   const item = await db.query.projectItems.findFirst({
@@ -485,7 +565,7 @@ app.patch("/api/projects/items/:id", requireAuth, async (c) => {
   });
 
   if (!item) {
-    return c.json({ error: "Item not found" }, 404);
+    return c.json({ error: 'Item not found' }, 404);
   }
 
   const project = await db.query.projects.findFirst({
@@ -499,7 +579,7 @@ app.patch("/api/projects/items/:id", requireAuth, async (c) => {
     : null;
 
   if (user.id !== repo?.ownerId) {
-    return c.json({ error: "Only repo owner can update items" }, 403);
+    return c.json({ error: 'Only repo owner can update items' }, 403);
   }
 
   const updates: Record<string, any> = {};
@@ -514,24 +594,33 @@ app.patch("/api/projects/items/:id", requireAuth, async (c) => {
   return c.json({ success: true });
 });
 
-app.post("/api/projects/items/reorder", requireAuth, async (c) => {
-  const user = c.get("user")!;
+app.post('/api/projects/items/reorder', requireAuth, async (c) => {
+  const user = c.get('user')!;
   const body = await c.req.json<{ items: { id: string; columnId: string; position: number }[] }>();
 
   if (!body.items?.length) {
-    return c.json({ error: "Items array is required" }, 400);
+    return c.json({ error: 'Items array is required' }, 400);
+  }
+  if (body.items.length > 500) {
+    return c.json({ error: 'Too many items' }, 400);
   }
 
-  const firstItem = await db.query.projectItems.findFirst({
-    where: eq(projectItems.id, body.items[0].id),
+  const itemIds = body.items.map((i) => i.id);
+  const loadedItems = await db.query.projectItems.findMany({
+    where: inArray(projectItems.id, itemIds),
   });
 
-  if (!firstItem) {
-    return c.json({ error: "Item not found" }, 404);
+  if (loadedItems.length !== itemIds.length) {
+    return c.json({ error: 'One or more items not found' }, 404);
+  }
+
+  const projectIds = [...new Set(loadedItems.map((i) => i.projectId))];
+  if (projectIds.length !== 1) {
+    return c.json({ error: 'All items must belong to the same project' }, 400);
   }
 
   const project = await db.query.projects.findFirst({
-    where: eq(projects.id, firstItem.projectId),
+    where: eq(projects.id, projectIds[0]!),
   });
 
   const repo = project
@@ -540,30 +629,45 @@ app.post("/api/projects/items/reorder", requireAuth, async (c) => {
       })
     : null;
 
-  if (user.id !== repo?.ownerId) {
-    return c.json({ error: "Only repo owner can reorder items" }, 403);
+  if (!repo || user.id !== repo.ownerId) {
+    return c.json({ error: 'Only repo owner can reorder items' }, 403);
   }
 
-  for (const item of body.items) {
-    await db
-      .update(projectItems)
-      .set({ columnId: item.columnId, position: item.position })
-      .where(eq(projectItems.id, item.id));
+  // Ensure column targets belong to the same project (prevent cross-project moves).
+  const columnIds = [...new Set(body.items.map((i) => i.columnId).filter(Boolean))];
+  if (columnIds.length) {
+    const cols = await db.query.projectColumns.findMany({
+      where: inArray(projectColumns.id, columnIds),
+    });
+    if (cols.length !== columnIds.length || cols.some((col) => col.projectId !== project!.id)) {
+      return c.json({ error: 'Invalid column for project' }, 400);
+    }
   }
+
+  await db.transaction(async (tx) => {
+    for (const item of body.items) {
+      const updated = await tx
+        .update(projectItems)
+        .set({ columnId: item.columnId, position: item.position })
+        .where(and(eq(projectItems.id, item.id), eq(projectItems.projectId, project.id)))
+        .returning({ id: projectItems.id });
+      if (updated.length !== 1) throw new Error('Project item changed during reorder');
+    }
+  });
 
   return c.json({ success: true });
 });
 
-app.delete("/api/projects/items/:id", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.delete('/api/projects/items/:id', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
 
   const item = await db.query.projectItems.findFirst({
     where: eq(projectItems.id, id),
   });
 
   if (!item) {
-    return c.json({ error: "Item not found" }, 404);
+    return c.json({ error: 'Item not found' }, 404);
   }
 
   const project = await db.query.projects.findFirst({
@@ -577,7 +681,7 @@ app.delete("/api/projects/items/:id", requireAuth, async (c) => {
     : null;
 
   if (user.id !== repo?.ownerId) {
-    return c.json({ error: "Only repo owner can delete items" }, 403);
+    return c.json({ error: 'Only repo owner can delete items' }, 403);
   }
 
   await db.delete(projectItems).where(eq(projectItems.id, id));

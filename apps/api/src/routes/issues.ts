@@ -1,4 +1,3 @@
-import { Hono } from "hono";
 import {
   db,
   users,
@@ -9,18 +8,18 @@ import {
   issueAssignees,
   issueComments,
   issueReactions,
-} from "@sigmagit/db";
-import { eq, sql, and, desc, inArray } from "drizzle-orm";
-import { authMiddleware, requireAuth, type AuthVariables } from "../middleware/auth";
-import { parseLimit, parseOffset } from "../lib/validation";
-import { canManageRepository } from "../lib/access";
-import { resolveRepositoryWithAccess } from "../lib/repo-helpers";
-import { writeRateLimit } from "../middleware/rate-limit";
+} from '@sigmagit/db';
+import { authMiddleware, requireAuth, type AuthVariables } from '../middleware/auth';
+import { resolveRepositoryWithAccess } from '../lib/repo-helpers';
+import { parseLimit, parseOffset } from '../lib/validation';
+import { writeRateLimit } from '../middleware/rate-limit';
+import { eq, sql, and, desc, inArray } from 'drizzle-orm';
+import { canManageRepository } from '../lib/access';
+import { Hono } from 'hono';
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
-
-const VALID_EMOJIS = ["+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"];
+const VALID_EMOJIS = ['+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'];
 
 async function getIssueLabels(issueId: string) {
   return db
@@ -102,7 +101,10 @@ async function getCommentReactionsGrouped(commentId: string, userId?: string) {
 }
 
 async function getCommentCount(issueId: string): Promise<number> {
-  const [result] = await db.select({ count: sql<number>`COUNT(*)` }).from(issueComments).where(eq(issueComments.issueId, issueId));
+  const [result] = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(issueComments)
+    .where(eq(issueComments.issueId, issueId));
   return result?.count || 0;
 }
 
@@ -112,7 +114,12 @@ async function getUsersByIds(userIds: string[]): Promise<Map<string, UserSummary
   if (userIds.length === 0) return new Map();
   const uniq = [...new Set(userIds)];
   const rows = await db
-    .select({ id: users.id, username: users.username, name: users.name, avatarUrl: users.avatarUrl })
+    .select({
+      id: users.id,
+      username: users.username,
+      name: users.name,
+      avatarUrl: users.avatarUrl,
+    })
     .from(users)
     .where(inArray(users.id, uniq));
   return new Map(rows.map((u) => [u.id, u]));
@@ -120,7 +127,7 @@ async function getUsersByIds(userIds: string[]): Promise<Map<string, UserSummary
 
 function buildIssueReactionsGrouped(
   counts: { issueId: string; emoji: string; count: number }[],
-  userEmojisByIssue: Map<string, string[]>
+  userEmojisByIssue: Map<string, string[]>,
 ) {
   const byIssue = new Map<string, { emoji: string; count: number; reacted: boolean }[]>();
   for (const c of counts) {
@@ -135,20 +142,20 @@ function buildIssueReactionsGrouped(
   return byIssue;
 }
 
-app.get("/api/repositories/:owner/:name/issues", async (c) => {
-  const owner = c.req.param("owner");
-  const name = c.req.param("name");
-  const currentUser = c.get("user");
-  const stateParam = c.req.query("state") || "open";
-  const state: "open" | "closed" = stateParam === "closed" ? "closed" : "open";
-  const labelFilter = c.req.query("label");
-  const assigneeFilter = c.req.query("assignee");
-  const limit = parseLimit(c.req.query("limit"), 30);
-  const offset = parseOffset(c.req.query("offset"), 0);
+app.get('/api/repositories/:owner/:name/issues', async (c) => {
+  const owner = c.req.param('owner');
+  const name = c.req.param('name');
+  const currentUser = c.get('user');
+  const stateParam = c.req.query('state') || 'open';
+  const state: 'open' | 'closed' = stateParam === 'closed' ? 'closed' : 'open';
+  const labelFilter = c.req.query('label');
+  const assigneeFilter = c.req.query('assignee');
+  const limit = parseLimit(c.req.query('limit'), 30);
+  const offset = parseOffset(c.req.query('offset'), 0);
 
   const repoAccess = await resolveRepositoryWithAccess(owner, name, currentUser);
   if (!repoAccess) {
-    return c.json({ error: "Repository not found" }, 404);
+    return c.json({ error: 'Repository not found' }, 404);
   }
 
   let query = db
@@ -180,7 +187,14 @@ app.get("/api/repositories/:owner/:name/issues", async (c) => {
   const closedByIds = issueRows.filter((r) => r.closedById).map((r) => r.closedById!);
   const userIds = [...new Set([...authorIds, ...closedByIds])];
 
-  const [usersById, issueLabelRows, assigneeRows, reactionCounts, userReactionRows, commentCountRows] = await Promise.all([
+  const [
+    usersById,
+    issueLabelRows,
+    assigneeRows,
+    reactionCounts,
+    userReactionRows,
+    commentCountRows,
+  ] = await Promise.all([
     getUsersByIds(userIds),
     issueIds.length === 0
       ? Promise.resolve([])
@@ -207,7 +221,7 @@ app.get("/api/repositories/:owner/:name/issues", async (c) => {
           .select({
             issueId: issueReactions.issueId,
             emoji: issueReactions.emoji,
-            count: sql<number>`COUNT(*)`.as("count"),
+            count: sql<number>`COUNT(*)`.as('count'),
           })
           .from(issueReactions)
           .where(inArray(issueReactions.issueId, issueIds))
@@ -216,14 +230,19 @@ app.get("/api/repositories/:owner/:name/issues", async (c) => {
       ? db
           .select({ issueId: issueReactions.issueId, emoji: issueReactions.emoji })
           .from(issueReactions)
-          .where(and(inArray(issueReactions.issueId, issueIds), eq(issueReactions.userId, currentUser.id)))
+          .where(
+            and(
+              inArray(issueReactions.issueId, issueIds),
+              eq(issueReactions.userId, currentUser.id),
+            ),
+          )
       : Promise.resolve([]),
     issueIds.length === 0
       ? Promise.resolve([])
       : db
           .select({
             issueId: issueComments.issueId,
-            count: sql<number>`COUNT(*)`.as("count"),
+            count: sql<number>`COUNT(*)`.as('count'),
           })
           .from(issueComments)
           .where(inArray(issueComments.issueId, issueIds))
@@ -231,15 +250,26 @@ app.get("/api/repositories/:owner/:name/issues", async (c) => {
   ]);
 
   const labelIds = [...new Set(issueLabelRows.map((r) => r.labelId))];
-  const labelsById = new Map<string, { id: string; name: string; description: string | null; color: string | null }>();
+  const labelsById = new Map<
+    string,
+    { id: string; name: string; description: string | null; color: string | null }
+  >();
   if (labelIds.length > 0) {
     const labelRows = await db
-      .select({ id: labels.id, name: labels.name, description: labels.description, color: labels.color })
+      .select({
+        id: labels.id,
+        name: labels.name,
+        description: labels.description,
+        color: labels.color,
+      })
       .from(labels)
       .where(inArray(labels.id, labelIds));
     for (const l of labelRows) labelsById.set(l.id, l);
   }
-  const labelsByIssueId = new Map<string, { id: string; name: string; description: string | null; color: string | null }[]>();
+  const labelsByIssueId = new Map<
+    string,
+    { id: string; name: string; description: string | null; color: string | null }[]
+  >();
   for (const r of issueLabelRows) {
     const label = labelsById.get(r.labelId);
     if (label) {
@@ -264,7 +294,7 @@ app.get("/api/repositories/:owner/:name/issues", async (c) => {
   }
   const reactionsByIssueId = buildIssueReactionsGrouped(
     reactionCounts.map((c) => ({ issueId: c.issueId, emoji: c.emoji, count: c.count })),
-    userEmojisByIssue
+    userEmojisByIssue,
   );
 
   const commentCountByIssueId = new Map<string, number>();
@@ -273,11 +303,22 @@ app.get("/api/repositories/:owner/:name/issues", async (c) => {
   }
 
   const issueList = issueRows.map((row) => {
-    const author = usersById.get(row.authorId) ?? { id: row.authorId, username: "unknown", name: "Unknown", avatarUrl: null };
-    const closedBy = row.closedById ? usersById.get(row.closedById) ?? null : null;
-    const issueLabelsData = (labelsByIssueId.get(row.id) ?? []).sort((a, b) => a.name.localeCompare(b.name));
+    const author = usersById.get(row.authorId) ?? {
+      id: row.authorId,
+      username: 'unknown',
+      name: 'Unknown',
+      avatarUrl: null,
+    };
+    const closedBy = row.closedById ? (usersById.get(row.closedById) ?? null) : null;
+    const issueLabelsData = (labelsByIssueId.get(row.id) ?? []).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
     const assignees = assigneesByIssueId.get(row.id) ?? [];
-    const reactions = (reactionsByIssueId.get(row.id) ?? []).map((c) => ({ emoji: c.emoji, count: c.count, reacted: c.reacted }));
+    const reactions = (reactionsByIssueId.get(row.id) ?? []).map((c) => ({
+      emoji: c.emoji,
+      count: c.count,
+      reacted: c.reacted,
+    }));
     const commentCount = commentCountByIssueId.get(row.id) ?? 0;
     return {
       id: row.id,
@@ -301,10 +342,10 @@ app.get("/api/repositories/:owner/:name/issues", async (c) => {
   return c.json({ issues: issueList, hasMore });
 });
 
-app.post("/api/repositories/:owner/:name/issues", requireAuth, writeRateLimit, async (c) => {
-  const owner = c.req.param("owner");
-  const name = c.req.param("name");
-  const user = c.get("user")!;
+app.post('/api/repositories/:owner/:name/issues', requireAuth, writeRateLimit, async (c) => {
+  const owner = c.req.param('owner');
+  const name = c.req.param('name');
+  const user = c.get('user')!;
   const body = await c.req.json<{
     title: string;
     body?: string;
@@ -314,11 +355,11 @@ app.post("/api/repositories/:owner/:name/issues", requireAuth, writeRateLimit, a
 
   const repoAccess = await resolveRepositoryWithAccess(owner, name, user);
   if (!repoAccess) {
-    return c.json({ error: "Repository not found" }, 404);
+    return c.json({ error: 'Repository not found' }, 404);
   }
 
   if (!body.title?.trim()) {
-    return c.json({ error: "Title cannot be empty" }, 400);
+    return c.json({ error: 'Title cannot be empty' }, 400);
   }
 
   const [maxNumber] = await db
@@ -373,38 +414,38 @@ app.post("/api/repositories/:owner/:name/issues", requireAuth, writeRateLimit, a
   });
 });
 
-app.get("/api/repositories/:owner/:name/issues/count", async (c) => {
-  const owner = c.req.param("owner");
-  const name = c.req.param("name");
-  const currentUser = c.get("user");
+app.get('/api/repositories/:owner/:name/issues/count', async (c) => {
+  const owner = c.req.param('owner');
+  const name = c.req.param('name');
+  const currentUser = c.get('user');
 
   const repoAccess = await resolveRepositoryWithAccess(owner, name, currentUser);
   if (!repoAccess) {
-    return c.json({ error: "Repository not found" }, 404);
+    return c.json({ error: 'Repository not found' }, 404);
   }
 
   const [openCount] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(issues)
-    .where(and(eq(issues.repositoryId, repoAccess.id), eq(issues.state, "open")));
+    .where(and(eq(issues.repositoryId, repoAccess.id), eq(issues.state, 'open')));
 
   const [closedCount] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(issues)
-    .where(and(eq(issues.repositoryId, repoAccess.id), eq(issues.state, "closed")));
+    .where(and(eq(issues.repositoryId, repoAccess.id), eq(issues.state, 'closed')));
 
   return c.json({ open: openCount?.count || 0, closed: closedCount?.count || 0 });
 });
 
-app.get("/api/repositories/:owner/:name/issues/:number", async (c) => {
-  const owner = c.req.param("owner");
-  const name = c.req.param("name");
-  const number = parseInt(c.req.param("number"), 10);
-  const currentUser = c.get("user");
+app.get('/api/repositories/:owner/:name/issues/:number', async (c) => {
+  const owner = c.req.param('owner');
+  const name = c.req.param('name');
+  const number = parseInt(c.req.param('number'), 10);
+  const currentUser = c.get('user');
 
   const repoAccess = await resolveRepositoryWithAccess(owner, name, currentUser);
   if (!repoAccess) {
-    return c.json({ error: "Repository not found" }, 404);
+    return c.json({ error: 'Repository not found' }, 404);
   }
 
   const issue = await db.query.issues.findFirst({
@@ -412,7 +453,7 @@ app.get("/api/repositories/:owner/:name/issues/:number", async (c) => {
   });
 
   if (!issue) {
-    return c.json({ error: "Issue not found" }, 404);
+    return c.json({ error: 'Issue not found' }, 404);
   }
 
   const author = await db.query.users.findFirst({
@@ -439,7 +480,7 @@ app.get("/api/repositories/:owner/:name/issues/:number", async (c) => {
     body: issue.body,
     state: issue.state,
     locked: issue.locked,
-    author: author || { id: issue.authorId, username: "unknown", name: "Unknown", avatarUrl: null },
+    author: author || { id: issue.authorId, username: 'unknown', name: 'Unknown', avatarUrl: null },
     labels: issueLabelsData,
     assignees,
     reactions,
@@ -451,9 +492,9 @@ app.get("/api/repositories/:owner/:name/issues/:number", async (c) => {
   });
 });
 
-app.patch("/api/issues/:id", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.patch('/api/issues/:id', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{
     title?: string;
     body?: string;
@@ -466,55 +507,76 @@ app.patch("/api/issues/:id", requireAuth, async (c) => {
   });
 
   if (!issue) {
-    return c.json({ error: "Issue not found" }, 404);
+    return c.json({ error: 'Issue not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
     where: eq(repositories.id, issue.repositoryId),
   });
 
-  if (user.id !== issue.authorId && user.id !== repo?.ownerId) {
-    return c.json({ error: "Not authorized" }, 403);
+  const isAuthor = user.id === issue.authorId;
+  const isOwner = user.id === repo?.ownerId;
+  // Moderators/admins or repo owners may lock; authors may not flip locked alone.
+  const canModerate = isOwner || user.role === 'admin' || user.role === 'moderator';
+
+  if (!isAuthor && !isOwner && !canModerate) {
+    return c.json({ error: 'Not authorized' }, 403);
   }
 
   if (body.title !== undefined && !body.title.trim()) {
-    return c.json({ error: "Title cannot be empty" }, 400);
+    return c.json({ error: 'Title cannot be empty' }, 400);
   }
 
-  if (body.state && body.state !== "open" && body.state !== "closed") {
-    return c.json({ error: "Invalid state" }, 400);
+  if (body.state && body.state !== 'open' && body.state !== 'closed') {
+    return c.json({ error: 'Invalid state' }, 400);
+  }
+
+  if (body.locked !== undefined && !canModerate) {
+    return c.json({ error: 'Only repository owners or moderators can lock issues' }, 403);
   }
 
   const updates: Record<string, any> = { updatedAt: new Date() };
-  if (body.title !== undefined) updates.title = body.title;
-  if (body.body !== undefined) updates.body = body.body;
+  if (body.title !== undefined) {
+    if (!isAuthor && !isOwner && !canModerate) {
+      return c.json({ error: 'Not authorized' }, 403);
+    }
+    updates.title = body.title;
+  }
+  if (body.body !== undefined) {
+    if (!isAuthor && !isOwner && !canModerate) {
+      return c.json({ error: 'Not authorized' }, 403);
+    }
+    updates.body = body.body;
+  }
   if (body.state !== undefined) {
     updates.state = body.state;
-    if (body.state === "closed" && issue.state === "open") {
+    if (body.state === 'closed' && issue.state === 'open') {
       updates.closedAt = new Date();
       updates.closedById = user.id;
-    } else if (body.state === "open" && issue.state === "closed") {
+    } else if (body.state === 'open' && issue.state === 'closed') {
       updates.closedAt = null;
       updates.closedById = null;
     }
   }
-  if (body.locked !== undefined) updates.locked = body.locked;
+  if (body.locked !== undefined && canModerate) {
+    updates.locked = body.locked;
+  }
 
   await db.update(issues).set(updates).where(eq(issues.id, id));
 
   return c.json({ success: true });
 });
 
-app.delete("/api/issues/:id", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.delete('/api/issues/:id', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
 
   const issue = await db.query.issues.findFirst({
     where: eq(issues.id, id),
   });
 
   if (!issue) {
-    return c.json({ error: "Issue not found" }, 404);
+    return c.json({ error: 'Issue not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
@@ -522,7 +584,7 @@ app.delete("/api/issues/:id", requireAuth, async (c) => {
   });
 
   if (user.id !== repo?.ownerId) {
-    return c.json({ error: "Only repo owner can delete issues" }, 403);
+    return c.json({ error: 'Only repo owner can delete issues' }, 403);
   }
 
   await db.delete(issues).where(eq(issues.id, id));
@@ -530,14 +592,14 @@ app.delete("/api/issues/:id", requireAuth, async (c) => {
   return c.json({ success: true });
 });
 
-app.get("/api/repositories/:owner/:name/labels", async (c) => {
-  const owner = c.req.param("owner");
-  const name = c.req.param("name");
-  const currentUser = c.get("user");
+app.get('/api/repositories/:owner/:name/labels', async (c) => {
+  const owner = c.req.param('owner');
+  const name = c.req.param('name');
+  const currentUser = c.get('user');
 
   const repoAccess = await resolveRepositoryWithAccess(owner, name, currentUser);
   if (!repoAccess) {
-    return c.json({ error: "Repository not found" }, 404);
+    return c.json({ error: 'Repository not found' }, 404);
   }
 
   const labelsData = await db
@@ -554,10 +616,10 @@ app.get("/api/repositories/:owner/:name/labels", async (c) => {
   return c.json({ labels: labelsData });
 });
 
-app.post("/api/repositories/:owner/:name/labels", requireAuth, async (c) => {
-  const owner = c.req.param("owner");
-  const name = c.req.param("name");
-  const user = c.get("user")!;
+app.post('/api/repositories/:owner/:name/labels', requireAuth, async (c) => {
+  const owner = c.req.param('owner');
+  const name = c.req.param('name');
+  const user = c.get('user')!;
   const body = await c.req.json<{
     name: string;
     description?: string;
@@ -566,15 +628,15 @@ app.post("/api/repositories/:owner/:name/labels", requireAuth, async (c) => {
 
   const repoAccess = await resolveRepositoryWithAccess(owner, name, user);
   if (!repoAccess) {
-    return c.json({ error: "Repository not found" }, 404);
+    return c.json({ error: 'Repository not found' }, 404);
   }
 
   if (!(await canManageRepository(repoAccess, user))) {
-    return c.json({ error: "Only repo owner can create labels" }, 403);
+    return c.json({ error: 'Only repo owner can create labels' }, 403);
   }
 
   if (!body.name?.trim()) {
-    return c.json({ error: "Name cannot be empty" }, 400);
+    return c.json({ error: 'Name cannot be empty' }, 400);
   }
 
   const [label] = await db
@@ -590,9 +652,9 @@ app.post("/api/repositories/:owner/:name/labels", requireAuth, async (c) => {
   return c.json(label);
 });
 
-app.patch("/api/labels/:id", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.patch('/api/labels/:id', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{
     name?: string;
     description?: string;
@@ -604,7 +666,7 @@ app.patch("/api/labels/:id", requireAuth, async (c) => {
   });
 
   if (!label) {
-    return c.json({ error: "Label not found" }, 404);
+    return c.json({ error: 'Label not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
@@ -612,7 +674,7 @@ app.patch("/api/labels/:id", requireAuth, async (c) => {
   });
 
   if (user.id !== repo?.ownerId) {
-    return c.json({ error: "Only repo owner can update labels" }, 403);
+    return c.json({ error: 'Only repo owner can update labels' }, 403);
   }
 
   const [updated] = await db
@@ -628,16 +690,16 @@ app.patch("/api/labels/:id", requireAuth, async (c) => {
   return c.json(updated);
 });
 
-app.delete("/api/labels/:id", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.delete('/api/labels/:id', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
 
   const label = await db.query.labels.findFirst({
     where: eq(labels.id, id),
   });
 
   if (!label) {
-    return c.json({ error: "Label not found" }, 404);
+    return c.json({ error: 'Label not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
@@ -645,7 +707,7 @@ app.delete("/api/labels/:id", requireAuth, async (c) => {
   });
 
   if (user.id !== repo?.ownerId) {
-    return c.json({ error: "Only repo owner can delete labels" }, 403);
+    return c.json({ error: 'Only repo owner can delete labels' }, 403);
   }
 
   await db.delete(labels).where(eq(labels.id, id));
@@ -653,9 +715,9 @@ app.delete("/api/labels/:id", requireAuth, async (c) => {
   return c.json({ success: true });
 });
 
-app.post("/api/issues/:id/labels", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.post('/api/issues/:id/labels', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{ labels: string[] }>();
 
   const issue = await db.query.issues.findFirst({
@@ -663,7 +725,7 @@ app.post("/api/issues/:id/labels", requireAuth, async (c) => {
   });
 
   if (!issue) {
-    return c.json({ error: "Issue not found" }, 404);
+    return c.json({ error: 'Issue not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
@@ -671,7 +733,7 @@ app.post("/api/issues/:id/labels", requireAuth, async (c) => {
   });
 
   if (user.id !== issue.authorId && user.id !== repo?.ownerId) {
-    return c.json({ error: "Not authorized" }, 403);
+    return c.json({ error: 'Not authorized' }, 403);
   }
 
   if (body.labels.length) {
@@ -684,17 +746,17 @@ app.post("/api/issues/:id/labels", requireAuth, async (c) => {
   return c.json({ success: true });
 });
 
-app.delete("/api/issues/:id/labels/:labelId", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const labelId = c.req.param("labelId");
-  const user = c.get("user")!;
+app.delete('/api/issues/:id/labels/:labelId', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const labelId = c.req.param('labelId');
+  const user = c.get('user')!;
 
   const issue = await db.query.issues.findFirst({
     where: eq(issues.id, id),
   });
 
   if (!issue) {
-    return c.json({ error: "Issue not found" }, 404);
+    return c.json({ error: 'Issue not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
@@ -702,17 +764,19 @@ app.delete("/api/issues/:id/labels/:labelId", requireAuth, async (c) => {
   });
 
   if (user.id !== issue.authorId && user.id !== repo?.ownerId) {
-    return c.json({ error: "Not authorized" }, 403);
+    return c.json({ error: 'Not authorized' }, 403);
   }
 
-  await db.delete(issueLabels).where(and(eq(issueLabels.issueId, id), eq(issueLabels.labelId, labelId)));
+  await db
+    .delete(issueLabels)
+    .where(and(eq(issueLabels.issueId, id), eq(issueLabels.labelId, labelId)));
 
   return c.json({ success: true });
 });
 
-app.post("/api/issues/:id/assignees", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.post('/api/issues/:id/assignees', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{ assignees: string[] }>();
 
   const issue = await db.query.issues.findFirst({
@@ -720,7 +784,7 @@ app.post("/api/issues/:id/assignees", requireAuth, async (c) => {
   });
 
   if (!issue) {
-    return c.json({ error: "Issue not found" }, 404);
+    return c.json({ error: 'Issue not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
@@ -728,7 +792,7 @@ app.post("/api/issues/:id/assignees", requireAuth, async (c) => {
   });
 
   if (user.id !== issue.authorId && user.id !== repo?.ownerId) {
-    return c.json({ error: "Not authorized" }, 403);
+    return c.json({ error: 'Not authorized' }, 403);
   }
 
   if (body.assignees.length) {
@@ -741,17 +805,17 @@ app.post("/api/issues/:id/assignees", requireAuth, async (c) => {
   return c.json({ success: true });
 });
 
-app.delete("/api/issues/:id/assignees/:userId", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const userId = c.req.param("userId");
-  const user = c.get("user")!;
+app.delete('/api/issues/:id/assignees/:userId', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const userId = c.req.param('userId');
+  const user = c.get('user')!;
 
   const issue = await db.query.issues.findFirst({
     where: eq(issues.id, id),
   });
 
   if (!issue) {
-    return c.json({ error: "Issue not found" }, 404);
+    return c.json({ error: 'Issue not found' }, 404);
   }
 
   const repo = await db.query.repositories.findFirst({
@@ -759,17 +823,19 @@ app.delete("/api/issues/:id/assignees/:userId", requireAuth, async (c) => {
   });
 
   if (user.id !== issue.authorId && user.id !== repo?.ownerId) {
-    return c.json({ error: "Not authorized" }, 403);
+    return c.json({ error: 'Not authorized' }, 403);
   }
 
-  await db.delete(issueAssignees).where(and(eq(issueAssignees.issueId, id), eq(issueAssignees.userId, userId)));
+  await db
+    .delete(issueAssignees)
+    .where(and(eq(issueAssignees.issueId, id), eq(issueAssignees.userId, userId)));
 
   return c.json({ success: true });
 });
 
-app.get("/api/issues/:id/comments", async (c) => {
-  const id = c.req.param("id");
-  const currentUser = c.get("user");
+app.get('/api/issues/:id/comments', async (c) => {
+  const id = c.req.param('id');
+  const currentUser = c.get('user');
 
   const comments = await db
     .select({
@@ -796,7 +862,7 @@ app.get("/api/issues/:id/comments", async (c) => {
       .select({
         commentId: issueReactions.commentId,
         emoji: issueReactions.emoji,
-        count: sql<number>`COUNT(*)`.as("count"),
+        count: sql<number>`COUNT(*)`.as('count'),
       })
       .from(issueReactions)
       .where(inArray(issueReactions.commentId, commentIds))
@@ -805,7 +871,12 @@ app.get("/api/issues/:id/comments", async (c) => {
       ? db
           .select({ commentId: issueReactions.commentId, emoji: issueReactions.emoji })
           .from(issueReactions)
-          .where(and(inArray(issueReactions.commentId, commentIds), eq(issueReactions.userId, currentUser.id)))
+          .where(
+            and(
+              inArray(issueReactions.commentId, commentIds),
+              eq(issueReactions.userId, currentUser.id),
+            ),
+          )
       : Promise.resolve([]),
   ]);
 
@@ -816,7 +887,10 @@ app.get("/api/issues/:id/comments", async (c) => {
     if (!list.includes(r.emoji)) list.push(r.emoji);
     userEmojisByCommentId.set(r.commentId, list);
   }
-  const reactionsByCommentId = new Map<string, { emoji: string; count: number; reacted: boolean }[]>();
+  const reactionsByCommentId = new Map<
+    string,
+    { emoji: string; count: number; reacted: boolean }[]
+  >();
   for (const c of reactionCounts) {
     if (!c.commentId) continue;
     const list = reactionsByCommentId.get(c.commentId) ?? [];
@@ -829,7 +903,12 @@ app.get("/api/issues/:id/comments", async (c) => {
   }
 
   const commentsList = comments.map((comment) => {
-    const author = usersById.get(comment.authorId) ?? { id: comment.authorId, username: "unknown", name: "Unknown", avatarUrl: null };
+    const author = usersById.get(comment.authorId) ?? {
+      id: comment.authorId,
+      username: 'unknown',
+      name: 'Unknown',
+      avatarUrl: null,
+    };
     const reactions = reactionsByCommentId.get(comment.id) ?? [];
     return {
       id: comment.id,
@@ -844,13 +923,13 @@ app.get("/api/issues/:id/comments", async (c) => {
   return c.json({ comments: commentsList });
 });
 
-app.post("/api/issues/:id/comments", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.post('/api/issues/:id/comments', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{ body: string }>();
 
   if (!body.body?.trim()) {
-    return c.json({ error: "Comment cannot be empty" }, 400);
+    return c.json({ error: 'Comment cannot be empty' }, 400);
   }
 
   const issue = await db.query.issues.findFirst({
@@ -858,7 +937,7 @@ app.post("/api/issues/:id/comments", requireAuth, async (c) => {
   });
 
   if (!issue) {
-    return c.json({ error: "Issue not found" }, 404);
+    return c.json({ error: 'Issue not found' }, 404);
   }
 
   const [inserted] = await db
@@ -880,9 +959,9 @@ app.post("/api/issues/:id/comments", requireAuth, async (c) => {
   });
 });
 
-app.patch("/api/issues/comments/:id", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.patch('/api/issues/comments/:id', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{ body: string }>();
 
   const comment = await db.query.issueComments.findFirst({
@@ -890,32 +969,35 @@ app.patch("/api/issues/comments/:id", requireAuth, async (c) => {
   });
 
   if (!comment) {
-    return c.json({ error: "Comment not found" }, 404);
+    return c.json({ error: 'Comment not found' }, 404);
   }
 
   if (user.id !== comment.authorId) {
-    return c.json({ error: "Only comment author can edit" }, 403);
+    return c.json({ error: 'Only comment author can edit' }, 403);
   }
 
   if (!body.body?.trim()) {
-    return c.json({ error: "Comment cannot be empty" }, 400);
+    return c.json({ error: 'Comment cannot be empty' }, 400);
   }
 
-  await db.update(issueComments).set({ body: body.body, updatedAt: new Date() }).where(eq(issueComments.id, id));
+  await db
+    .update(issueComments)
+    .set({ body: body.body, updatedAt: new Date() })
+    .where(eq(issueComments.id, id));
 
   return c.json({ success: true });
 });
 
-app.delete("/api/issues/comments/:id", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.delete('/api/issues/comments/:id', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
 
   const comment = await db.query.issueComments.findFirst({
     where: eq(issueComments.id, id),
   });
 
   if (!comment) {
-    return c.json({ error: "Comment not found" }, 404);
+    return c.json({ error: 'Comment not found' }, 404);
   }
 
   const issue = await db.query.issues.findFirst({
@@ -929,7 +1011,7 @@ app.delete("/api/issues/comments/:id", requireAuth, async (c) => {
     : null;
 
   if (user.id !== comment.authorId && user.id !== repo?.ownerId) {
-    return c.json({ error: "Not authorized" }, 403);
+    return c.json({ error: 'Not authorized' }, 403);
   }
 
   await db.delete(issueComments).where(eq(issueComments.id, id));
@@ -937,13 +1019,13 @@ app.delete("/api/issues/comments/:id", requireAuth, async (c) => {
   return c.json({ success: true });
 });
 
-app.post("/api/issues/:id/reactions", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.post('/api/issues/:id/reactions', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{ emoji: string }>();
 
   if (!VALID_EMOJIS.includes(body.emoji)) {
-    return c.json({ error: "Invalid emoji" }, 400);
+    return c.json({ error: 'Invalid emoji' }, 400);
   }
 
   const issue = await db.query.issues.findFirst({
@@ -951,17 +1033,27 @@ app.post("/api/issues/:id/reactions", requireAuth, async (c) => {
   });
 
   if (!issue) {
-    return c.json({ error: "Issue not found" }, 404);
+    return c.json({ error: 'Issue not found' }, 404);
   }
 
   const existing = await db.query.issueReactions.findFirst({
-    where: and(eq(issueReactions.issueId, id), eq(issueReactions.userId, user.id), eq(issueReactions.emoji, body.emoji)),
+    where: and(
+      eq(issueReactions.issueId, id),
+      eq(issueReactions.userId, user.id),
+      eq(issueReactions.emoji, body.emoji),
+    ),
   });
 
   if (existing) {
     await db
       .delete(issueReactions)
-      .where(and(eq(issueReactions.issueId, id), eq(issueReactions.userId, user.id), eq(issueReactions.emoji, body.emoji)));
+      .where(
+        and(
+          eq(issueReactions.issueId, id),
+          eq(issueReactions.userId, user.id),
+          eq(issueReactions.emoji, body.emoji),
+        ),
+      );
     return c.json({ added: false });
   } else {
     await db.insert(issueReactions).values({
@@ -973,13 +1065,13 @@ app.post("/api/issues/:id/reactions", requireAuth, async (c) => {
   }
 });
 
-app.post("/api/issues/comments/:id/reactions", requireAuth, async (c) => {
-  const id = c.req.param("id");
-  const user = c.get("user")!;
+app.post('/api/issues/comments/:id/reactions', requireAuth, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user')!;
   const body = await c.req.json<{ emoji: string }>();
 
   if (!VALID_EMOJIS.includes(body.emoji)) {
-    return c.json({ error: "Invalid emoji" }, 400);
+    return c.json({ error: 'Invalid emoji' }, 400);
   }
 
   const comment = await db.query.issueComments.findFirst({
@@ -987,17 +1079,27 @@ app.post("/api/issues/comments/:id/reactions", requireAuth, async (c) => {
   });
 
   if (!comment) {
-    return c.json({ error: "Comment not found" }, 404);
+    return c.json({ error: 'Comment not found' }, 404);
   }
 
   const existing = await db.query.issueReactions.findFirst({
-    where: and(eq(issueReactions.commentId, id), eq(issueReactions.userId, user.id), eq(issueReactions.emoji, body.emoji)),
+    where: and(
+      eq(issueReactions.commentId, id),
+      eq(issueReactions.userId, user.id),
+      eq(issueReactions.emoji, body.emoji),
+    ),
   });
 
   if (existing) {
     await db
       .delete(issueReactions)
-      .where(and(eq(issueReactions.commentId, id), eq(issueReactions.userId, user.id), eq(issueReactions.emoji, body.emoji)));
+      .where(
+        and(
+          eq(issueReactions.commentId, id),
+          eq(issueReactions.userId, user.id),
+          eq(issueReactions.emoji, body.emoji),
+        ),
+      );
     return c.json({ added: false });
   } else {
     await db.insert(issueReactions).values({

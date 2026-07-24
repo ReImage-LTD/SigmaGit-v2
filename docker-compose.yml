@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: sigmagit
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sigmagit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: sigmagit
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -54,9 +54,10 @@ services:
       - .env
     environment:
       TRUST_PROXY: 'true'
+      TRUSTED_PROXY_CIDRS: 172.16.0.0/12
       REDIS_SESSION_URL: redis://redis-session:6379
       REDIS_CACHE_URL: redis://redis-cache:6379
-      DATABASE_URL: postgresql://sigmagit:${POSTGRES_PASSWORD:-sigmagit}@postgres:5432/sigmagit
+      DATABASE_URL: postgresql://sigmagit:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sigmagit
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,6 +67,9 @@ services:
         condition: service_healthy
     expose:
       - '3001'
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
+    pids_limit: 256
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:3001/health']
       interval: 15s
@@ -88,6 +92,9 @@ services:
         condition: service_healthy
     expose:
       - '3000'
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
+    pids_limit: 256
     networks:
       - sigmagit
 

@@ -26,7 +26,7 @@ COPY packages/db/package.json ./packages/db/
 COPY packages/lib/package.json ./packages/lib/
 COPY packages/hooks/package.json ./packages/hooks/
 
-RUN bun install
+RUN bun install --frozen-lockfile
 
 COPY packages ./packages
 COPY apps/web ./apps/web
@@ -45,20 +45,24 @@ WORKDIR /app
 
 RUN apk add --no-cache wget
 
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/apps/web/.output ./apps/web/.output
-COPY --from=builder /app/apps/web/package.json ./apps/web/package.json
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
-COPY --from=builder /app/apps/discord-bot ./apps/discord-bot
+COPY --chown=bun:bun --from=builder /app/node_modules ./node_modules
+COPY --chown=bun:bun --from=builder /app/packages ./packages
+COPY --chown=bun:bun --from=builder /app/apps/web/.output ./apps/web/.output
+COPY --chown=bun:bun --from=builder /app/apps/web/package.json ./apps/web/package.json
+COPY --chown=bun:bun --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --chown=bun:bun --from=builder /app/apps/api/package.json ./apps/api/package.json
+COPY --chown=bun:bun --from=builder /app/apps/discord-bot ./apps/discord-bot
 
 COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
+    && mkdir -p /data/repos \
+    && chown -R bun:bun /data
 
 ENV NODE_ENV=production
 ENV PORT=3001
 EXPOSE 3000 3001
+
+USER bun
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD wget -qO- http://localhost:3001/health || exit 1

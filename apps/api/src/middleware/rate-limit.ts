@@ -1,16 +1,17 @@
-import { createMiddleware } from 'hono/factory';
-import type { Context } from 'hono';
-import { createHash } from 'node:crypto';
 import {
   RateLimiterRedis,
   RateLimiterMemory,
   RateLimiterAbstract,
   RateLimiterRes,
 } from 'rate-limiter-flexible';
-import { config } from '../config';
-import { getRedisSession } from '../redis';
 import { secureCompare } from '../security/secrets';
+import { createMiddleware } from 'hono/factory';
 import type { AuthVariables } from './auth';
+import { getRedisSession } from '../redis';
+import { createHash } from 'node:crypto';
+import { getConnInfo } from 'hono/bun';
+import type { Context } from 'hono';
+import { config } from '../config';
 
 type RateLimitContext = Context<{ Variables: AuthVariables }>;
 
@@ -92,7 +93,7 @@ async function getLimiter(tier: RateLimitTier): Promise<RateLimiterAbstract> {
 
     if (config.isProduction) {
       console.warn(
-        `[RateLimit] Redis unavailable — using in-memory fallback for ${tier} (${memoryPoints}/${memoryDuration}s)`
+        `[RateLimit] Redis unavailable — using in-memory fallback for ${tier} (${memoryPoints}/${memoryDuration}s)`,
       );
     }
 
@@ -151,19 +152,72 @@ export function hashApiKeyForRateLimit(apiKey: string): string {
 }
 
 /**
+ * Parse TRUSTED_PROXY_CIDRS (comma-separated) for hop-based IP extraction.
+ * When trustProxy is true but no CIDRs configured, only trust the immediate
+ * peer via x-real-ip set by the reverse proxy on the last hop — never the
+ * left-most (client-controlled) X-Forwarded-For entry alone without hop model.
+ */
+function parseTrustedProxyCidrs(): string[] {
+  return config.trustedProxyCidrs ?? [];
+}
+
+/** Simple IPv4 CIDR match for trusted proxy hop model. */
+export function ipv4InCidr(ip: string, cidr: string): boolean {
+  const [range, bitsStr] = cidr.split('/');
+  if (!range || !bitsStr) return ip === cidr;
+  const bits = parseInt(bitsStr, 10);
+  if (!Number.isFinite(bits) || bits < 0 || bits > 32) return false;
+  const ipToInt = (s: string) => {
+    const p = s.split('.').map((x) => parseInt(x, 10));
+    if (p.length !== 4 || p.some((n) => !Number.isFinite(n) || n < 0 || n > 255)) return null;
+    return ((p[0]! << 24) | (p[1]! << 16) | (p[2]! << 8) | p[3]!) >>> 0;
+  };
+  const ipInt = ipToInt(ip);
+  const rangeInt = ipToInt(range);
+  if (ipInt == null || rangeInt == null) return false;
+  const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+  return (ipInt & mask) === (rangeInt & mask);
+}
+
+export function resolveForwardedClientIp(
+  peerIp: string | undefined,
+  forwarded: string | undefined,
+  trustedCidrs: string[],
+): string | null {
+  if (!peerIp || !trustedCidrs.some((cidr) => ipv4InCidr(peerIp, cidr))) return null;
+
+  const hops = (forwarded ?? '')
+    .split(',')
+    .map((hop) => hop.trim())
+    .filter(Boolean);
+  hops.push(peerIp);
+  for (let index = hops.length - 1; index >= 0; index--) {
+    const hop = hops[index]!;
+    if (!trustedCidrs.some((cidr) => ipv4InCidr(hop, cidr))) return hop;
+  }
+  return hops[0] ?? null;
+}
+
+/**
  * Resolve client IP. When trustProxy is false, never trust forwarding headers.
+ * When trustProxy is true with TRUSTED_PROXY_CIDRS, use right-most untrusted hop
+ * from X-Forwarded-For. Without CIDRs, only accept x-real-ip / cf-connecting-ip
+ * (set by the edge proxy), never left-most XFF alone.
  */
 export function getClientIp(c: RateLimitContext): string {
-  if (config.trustProxy) {
-    const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
-    if (forwarded) return forwarded;
-    const realIp = c.req.header('x-real-ip')?.trim();
-    if (realIp) return realIp;
-    const cf = c.req.header('cf-connecting-ip')?.trim();
-    if (cf) return cf;
+  if (!config.trustProxy) {
+    return 'unknown';
   }
 
-  return 'unknown';
+  const cidrs = parseTrustedProxyCidrs();
+  let peerIp: string | undefined;
+  try {
+    peerIp = getConnInfo(c).remote.address;
+  } catch {
+    return 'unknown';
+  }
+  const forwarded = c.req.header('x-forwarded-for');
+  return resolveForwardedClientIp(peerIp, forwarded, cidrs) ?? 'unknown';
 }
 
 export function resolveRateLimitTier(c: RateLimitContext): RateLimitTier | null {
@@ -227,7 +281,11 @@ export function getRateLimitKey(c: RateLimitContext, tier: RateLimitTier): strin
   return getClientIp(c);
 }
 
-function setRateLimitHeaders(c: RateLimitContext, res: RateLimiterRes, tierConfig: RateLimitConfig) {
+function setRateLimitHeaders(
+  c: RateLimitContext,
+  res: RateLimiterRes,
+  tierConfig: RateLimitConfig,
+) {
   c.header('RateLimit-Limit', String(tierConfig.points));
   c.header('RateLimit-Remaining', String(Math.max(0, res.remainingPoints)));
   c.header('RateLimit-Reset', String(Math.ceil(res.msBeforeNext / 1000)));
@@ -426,12 +484,7 @@ let activeRestRequests = 0;
 let activeGitRequests = 0;
 
 function isConcurrencyExcludedPath(path: string): boolean {
-  return (
-    path === '/health' ||
-    path === '/api/health' ||
-    path === '/api/status' ||
-    path === '/ws'
-  );
+  return path === '/health' || path === '/api/health' || path === '/api/status' || path === '/ws';
 }
 
 export function concurrencyLimiter() {

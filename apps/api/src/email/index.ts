@@ -1,6 +1,6 @@
 import { config, getWebUrl } from '../config';
-import { Resend } from 'resend';
 import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 let resendClient: Resend | null = null;
 let smtpTransporter: nodemailer.Transporter | null = null;
@@ -18,11 +18,7 @@ function getResend(): Resend | null {
 }
 
 function getSmtpTransporter(): nodemailer.Transporter | null {
-  if (
-    !config.email.smtp.host ||
-    !config.email.smtp.user ||
-    !config.email.smtp.pass
-  ) {
+  if (!config.email.smtp.host || !config.email.smtp.user || !config.email.smtp.pass) {
     return null;
   }
 
@@ -149,7 +145,8 @@ export async function sendPasswordResetEmail(
   username: string,
 ): Promise<boolean> {
   const webUrl = getWebUrl();
-  const resetUrl = `${webUrl}/reset-password?token=${token}`;
+  // URL fragments are not sent in HTTP requests, referrers, proxy logs, or server analytics.
+  const resetUrl = `${webUrl}/reset-password#token=${encodeURIComponent(token)}`;
 
   const html = `
 <!DOCTYPE html>
@@ -234,7 +231,7 @@ export async function sendVerificationEmail(
         Please verify your email address to activate your Sigmagit account.
       </p>
       <a href="${verifyUrl}" style="${githubButtonStyle}">Verify email</a>
-      ${githubPanel("This link will expire in 24 hours.")}
+      ${githubPanel('This link will expire in 24 hours.')}
       <hr style="border: none; border-top: 1px solid #d0d7de; margin: 32px 0;" />
       <p style="color: #57606a; font-size: 14px;">If the button above does not work, copy and paste the link below into your browser:</p>
       <div style="background: #f6f8fa; border-radius: 6px; padding: 12px; color: #57606a; font-size: 13px; word-break: break-all;">
