@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.5 AS builder
+FROM oven/bun:1.3.14 AS builder
 
 WORKDIR /app
 
@@ -22,6 +22,7 @@ COPY .npmrc ./
 COPY apps/web/package.json ./apps/web/
 COPY apps/api/package.json ./apps/api/
 COPY apps/discord-bot/package.json ./apps/discord-bot/
+COPY apps/docs-vitepress/package.json ./apps/docs-vitepress/
 COPY packages/db/package.json ./packages/db/
 COPY packages/lib/package.json ./packages/lib/
 COPY packages/hooks/package.json ./packages/hooks/
@@ -39,7 +40,7 @@ RUN bun build src/index.ts --outdir dist --target bun --minify --packages=extern
 WORKDIR /app/apps/web
 RUN bun run build
 
-FROM oven/bun:1.3.5-alpine
+FROM oven/bun:1.3.14-alpine
 
 WORKDIR /app
 

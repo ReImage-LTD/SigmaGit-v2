@@ -29,7 +29,6 @@ logs
 data
 **/data
 apps/api/data
-apps/docs-vitepress
 apps/runner
 **/*.md
 !README.md

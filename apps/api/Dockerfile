@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.5 AS builder
+FROM oven/bun:1.3.14 AS builder
 
 WORKDIR /app
 
@@ -7,6 +7,9 @@ ENV WEB_URL=$WEB_URL
 
 COPY package.json bun.lock ./
 COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
+COPY apps/discord-bot/package.json ./apps/discord-bot/
+COPY apps/docs-vitepress/package.json ./apps/docs-vitepress/
 COPY packages/db/package.json ./packages/db/
 COPY packages/lib/package.json ./packages/lib/
 COPY packages/hooks/package.json ./packages/hooks/
@@ -21,7 +24,7 @@ COPY apps/api ./apps/api
 WORKDIR /app/apps/api
 RUN bun build src/index.ts --outdir dist --target bun --minify --packages=external
 
-FROM oven/bun:1.3.5-alpine AS runner
+FROM oven/bun:1.3.14-alpine AS runner
 
 WORKDIR /app
 

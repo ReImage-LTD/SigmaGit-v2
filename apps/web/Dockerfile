@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.5 AS builder
+FROM oven/bun:1.3.14 AS builder
 
 WORKDIR /app
 
@@ -17,6 +17,10 @@ ENV PROD=true
 COPY package.json bun.lock ./
 COPY .npmrc ./
 COPY apps/web/package.json ./apps/web/
+COPY apps/api/package.json ./apps/api/
+COPY apps/discord-bot/package.json ./apps/discord-bot/
+COPY apps/docs-vitepress/package.json ./apps/docs-vitepress/
+COPY packages/db/package.json ./packages/db/
 COPY packages/lib/package.json ./packages/lib/
 COPY packages/hooks/package.json ./packages/hooks/
 
@@ -29,7 +33,7 @@ WORKDIR /app/apps/web
 ENV NODE_ENV=production
 RUN bun run build
 
-FROM oven/bun:1.3.5-alpine AS runner
+FROM oven/bun:1.3.14-alpine AS runner
 
 WORKDIR /app
 
