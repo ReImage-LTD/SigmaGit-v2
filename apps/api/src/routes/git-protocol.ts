@@ -1,3 +1,4 @@
+import { applyDelta } from '../lib/git-delta';
 import { applyRefUpdates, type GitRefUpdate } from '../lib/git-ref-updates';
 import { Hono } from "hono";
 import { db, users, repositoryCollaborators } from "@sigmagit/db";
@@ -364,6 +365,7 @@ interface UploadObject {
 }
 
 function readPackVarInt(buf: Buffer, offset: number): { value: number; type: number; bytesRead: number } {
+  if (offset >= buf.length) throw new Error('Truncated pack header');
   let byte = buf[offset];
   const type = (byte >> 4) & 0x7;
   let value = byte & 0x0f;
@@ -371,8 +373,10 @@ function readPackVarInt(buf: Buffer, offset: number): { value: number; type: num
   let bytesRead = 1;
 
   while (byte & 0x80) {
+    if (offset + bytesRead >= buf.length || bytesRead >= 8) throw new Error('Invalid pack header');
     byte = buf[offset + bytesRead];
-    value |= (byte & 0x7f) << shift;
+    value += (byte & 0x7f) * 2 ** shift;
+    if (!Number.isSafeInteger(value)) throw new Error('Invalid pack size');
     shift += 7;
     bytesRead++;
   }
@@ -386,8 +390,10 @@ function readOfsOffset(buf: Buffer, offset: number): { value: number; bytesRead:
   let bytesRead = 1;
 
   while (byte & 0x80) {
+    if (offset + bytesRead >= buf.length || bytesRead >= 8) throw new Error('Invalid pack header');
     byte = buf[offset + bytesRead];
-    value = ((value + 1) << 7) | (byte & 0x7f);
+    value = (value + 1) * 128 + (byte & 0x7f);
+    if (!Number.isSafeInteger(value)) throw new Error('Invalid pack offset');
     bytesRead++;
   }
 
@@ -676,60 +682,6 @@ async function buildPackFile(objects: UploadObject[]): Promise<Buffer> {
   return Buffer.concat([packWithoutTrailer, trailer]);
 }
 
-function applyDelta(base: Buffer, delta: Buffer): Buffer {
-  let offset = 0;
-
-  let baseSize = 0;
-  let shift = 0;
-  while (offset < delta.length) {
-    const byte = delta[offset++];
-    baseSize |= (byte & 0x7f) << shift;
-    shift += 7;
-    if (!(byte & 0x80)) break;
-  }
-
-  let resultSize = 0;
-  shift = 0;
-  while (offset < delta.length) {
-    const byte = delta[offset++];
-    resultSize |= (byte & 0x7f) << shift;
-    shift += 7;
-    if (!(byte & 0x80)) break;
-  }
-
-  const result: Buffer[] = [];
-  let resultLen = 0;
-
-  while (offset < delta.length) {
-    const cmd = delta[offset++];
-
-    if (cmd & 0x80) {
-      let copyOffset = 0;
-      let copySize = 0;
-
-      if (cmd & 0x01) copyOffset = delta[offset++];
-      if (cmd & 0x02) copyOffset |= delta[offset++] << 8;
-      if (cmd & 0x04) copyOffset |= delta[offset++] << 16;
-      if (cmd & 0x08) copyOffset |= delta[offset++] << 24;
-
-      if (cmd & 0x10) copySize = delta[offset++];
-      if (cmd & 0x20) copySize |= delta[offset++] << 8;
-      if (cmd & 0x40) copySize |= delta[offset++] << 16;
-
-      if (copySize === 0) copySize = 0x10000;
-
-      result.push(base.subarray(copyOffset, copyOffset + copySize));
-      resultLen += copySize;
-    } else if (cmd > 0) {
-      result.push(delta.subarray(offset, offset + cmd));
-      offset += cmd;
-      resultLen += cmd;
-    }
-  }
-
-  return Buffer.concat(result);
-}
-
 function typeToString(type: number): string {
   switch (type) {
     case OBJ_COMMIT: return "commit";
@@ -757,7 +709,7 @@ async function loadObjectFromStorage(baseOid: string, basePath: string): Promise
       return null;
     }
 
-    const decompressed = await inflate(compressed);
+    const decompressed = await inflate(compressed, { maxOutputLength: GIT_MAX_OBJECT_BYTES + 128 });
     const nullIndex = decompressed.indexOf(0);
     if (nullIndex === -1) {
       return null;
@@ -814,6 +766,11 @@ async function unpackPackFile(
     const objects: Map<number, PackObject> = new Map();
     const refDeltas: Array<{ obj: PackObject; baseOid: string }> = [];
     let offset = 12;
+    let expandedBytes = 0;
+    const consumeBudget = (bytes: number) => {
+      expandedBytes += bytes;
+      if (expandedBytes > GIT_PUSH_SIZE_LIMIT) throw new Error("Expanded pack exceeds memory budget");
+    };
 
     for (let i = 0; i < numObjects; i++) {
       const objOffset = offset;
@@ -836,7 +793,11 @@ async function unpackPackFile(
         refDeltas.push({ obj, baseOid: obj.baseOid });
       }
 
-      const inflated = await inflateWithConsumedBytes(packData, offset);
+      if (header.value > GIT_MAX_OBJECT_BYTES) throw new Error('Pack object exceeds size limit');
+      const inflated = await inflateWithConsumedBytes(packData, offset,
+        Math.min(GIT_MAX_OBJECT_BYTES, GIT_PUSH_SIZE_LIMIT - expandedBytes));
+      if (inflated.data.length !== header.value) throw new Error('Pack object size mismatch');
+      consumeBudget(inflated.data.length);
       obj.data = inflated.data;
       offset += inflated.bytesRead;
       objects.set(objOffset, obj);
@@ -866,6 +827,7 @@ async function unpackPackFile(
 
         for (const { baseOid, baseObj } of results) {
           if (baseObj) {
+            consumeBudget(baseObj.data.length);
             baseObjects.set(baseOid, baseObj);
           } else {
             console.warn(`[API] unpack: REF_DELTA base object ${baseOid} not found in storage`);
@@ -901,8 +863,12 @@ async function unpackPackFile(
         return null;
       }
 
-      const resolvedData = applyDelta(baseData.data, obj.data);
-      return { type: baseData.type, data: resolvedData };
+      const resolvedData = applyDelta(baseData.data, obj.data,
+        Math.min(GIT_MAX_OBJECT_BYTES, GIT_PUSH_SIZE_LIMIT - expandedBytes));
+      consumeBudget(resolvedData.length);
+      obj.type = baseData.type;
+      obj.data = resolvedData;
+      return { type: obj.type, data: obj.data };
     };
 
     const objectsToStore: Array<{ oid: string; type: string; data: Buffer }> = [];
@@ -917,20 +883,17 @@ async function unpackPackFile(
         if (failed <= 10) {
           console.error(`[API] unpack: failed to resolve delta for object at offset ${objOffset}, type=${obj.type}`);
         }
-        obj.data = Buffer.alloc(0);
         continue;
       }
 
       if (resolved.data.length > GIT_MAX_OBJECT_BYTES) {
         failed++;
-        obj.data = Buffer.alloc(0);
         continue;
       }
 
       const typeStr = typeToString(resolved.type);
       const oid = hashObject(typeStr, resolved.data);
       objectsToStore.push({ oid, type: typeStr, data: resolved.data });
-      obj.data = Buffer.alloc(0);
 
       if (objectsToStore.length >= STORE_BATCH) {
         const batch = objectsToStore.splice(0, STORE_BATCH);
@@ -953,7 +916,7 @@ async function unpackPackFile(
     baseObjects.clear();
 
     if (failed > 0) {
-      console.warn(`[API] unpack: failed to resolve ${failed} objects`);
+      throw new Error(`Failed to resolve ${failed} pack objects`);
     }
 
     console.log(`[API] unpack: stored ${stored} objects`);
