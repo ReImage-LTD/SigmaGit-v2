@@ -5,12 +5,10 @@ import { db, users, sessions } from "@sigmagit/db";
 import { getAuth } from "../auth";
 import { config } from "../config";
 import { invalidateCachedUser } from "../middleware/auth";
-import { authRateLimitOnFailure } from "../middleware/rate-limit";
 import { createNostrChallenge, consumeNostrChallenge } from "../lib/nostr-challenge";
 
 const app = new Hono();
 
-app.use("/api/auth/nostr*", authRateLimitOnFailure);
 
 console.log("[Nostr Auth] Routes loading...");
 

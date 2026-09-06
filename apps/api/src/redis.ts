@@ -1,111 +1,53 @@
+import { createRecoveringConnection } from './lib/recovering-connection';
 import { createClient, type RedisClientType } from 'redis';
 import { config } from './config';
 
 type RedisRole = 'session' | 'cache';
 
-interface RedisPool {
-  client: RedisClientType | null;
-  reconnectAttempts: number;
-  lastHealthCheck: number;
-  isHealthy: boolean;
+function createPool(role: RedisRole) {
+  const pool = createRecoveringConnection<RedisClientType>({
+    connect: async () => {
+      const client = createClient({
+        url: role === 'session' ? config.redisSessionUrl : config.redisCacheUrl,
+        disableOfflineQueue: true,
+        socket: { connectTimeout: 3000, reconnectStrategy: false },
+      }) as RedisClientType;
+      client.on('error', () => pool.invalidate(client));
+      try {
+        await client.connect();
+        return client;
+      } catch (error) {
+        if (client.isOpen) client.destroy();
+        console.error(`[Redis:${role}] Connection failed; retrying after backoff`);
+        throw error;
+      }
+    },
+    healthy: async (client) => {
+      if (!client.isReady) return false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          client.ping().then(() => true),
+          new Promise<boolean>((resolve) => {
+            timer = setTimeout(() => resolve(false), 1000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    dispose: (client) => {
+      if (client.isOpen) client.destroy();
+    },
+  });
+  return pool;
 }
 
-const HEALTH_CHECK_INTERVAL = 5_000;
-const MAX_RECONNECT_ATTEMPTS = 5;
-const INITIAL_RECONNECT_DELAY = 1000;
-
-const pools: Record<RedisRole, RedisPool> = {
-  session: { client: null, reconnectAttempts: 0, lastHealthCheck: 0, isHealthy: false },
-  cache: { client: null, reconnectAttempts: 0, lastHealthCheck: 0, isHealthy: false },
-};
-
-async function isHealthy(client: RedisClientType): Promise<boolean> {
-  try {
-    await client.ping();
-    return true;
-  } catch {
-    return false;
-  }
+const pools = { session: createPool('session'), cache: createPool('cache') };
+function connectRedis(role: RedisRole): Promise<RedisClientType | null> {
+  const url = role === 'session' ? config.redisSessionUrl : config.redisCacheUrl;
+  return url ? pools[role].get() : Promise.resolve(null);
 }
-
-function getRedisUrl(role: RedisRole): string | undefined {
-  if (role === 'session') {
-    return config.redisSessionUrl;
-  }
-  return config.redisCacheUrl;
-}
-
-async function connectRedis(role: RedisRole): Promise<RedisClientType | null> {
-  const url = getRedisUrl(role);
-  if (!url) {
-    return null;
-  }
-
-  const pool = pools[role];
-
-  if (pool.client) {
-    const now = Date.now();
-    if (pool.isHealthy && now - pool.lastHealthCheck < HEALTH_CHECK_INTERVAL) {
-      return pool.client;
-    }
-
-    pool.lastHealthCheck = now;
-    if (await isHealthy(pool.client)) {
-      pool.isHealthy = true;
-      pool.reconnectAttempts = 0;
-      return pool.client;
-    }
-    pool.isHealthy = false;
-    const staleClient = pool.client;
-    pool.client = null;
-    try {
-      await staleClient.disconnect();
-    } catch {
-      // ignore disconnect errors on stale client
-    }
-  }
-
-  if (pool.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    console.error(`[Redis:${role}] Max reconnection attempts reached, giving up`);
-    return null;
-  }
-
-  const delay = INITIAL_RECONNECT_DELAY * Math.pow(2, pool.reconnectAttempts);
-  if (pool.reconnectAttempts > 0) {
-    console.log(
-      `[Redis:${role}] Reconnection attempt ${pool.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}, delay ${delay}ms`
-    );
-    await new Promise((resolve) => setTimeout(resolve, delay));
-  }
-
-  try {
-    const newClient = createClient({
-      url,
-      socket: {
-        connectTimeout: 3000,
-        reconnectStrategy: false,
-      },
-    });
-
-    await newClient.connect();
-
-    pool.client = newClient as RedisClientType;
-    pool.reconnectAttempts = 0;
-    pool.isHealthy = true;
-    pool.lastHealthCheck = Date.now();
-    console.log(`[Redis:${role}] Connected successfully`);
-    return pool.client;
-  } catch (error) {
-    pool.reconnectAttempts++;
-    console.error(
-      `[Redis:${role}] Connection attempt ${pool.reconnectAttempts} failed:`,
-      error instanceof Error ? error.message : 'Unknown error'
-    );
-    pool.client = null;
-    return null;
-  }
-}
-
 /** Session/operational Redis — auth sessions, rate limits, challenges. */
 export const getRedisSession = (): Promise<RedisClientType | null> => connectRedis('session');
 

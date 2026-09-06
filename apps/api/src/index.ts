@@ -11,7 +11,7 @@ import {
   gitLimitsMiddleware,
   responseSizeMiddleware,
 } from "./middleware/limits";
-import rateLimitMiddleware, { concurrencyLimiter } from "./middleware/rate-limit";
+import rateLimitMiddleware, { concurrencyLimiter, ingressRateLimit } from "./middleware/rate-limit";
 import { authMiddleware } from "./middleware/auth";
 import { requestIdMiddleware } from "./middleware/request-id";
 import { requestTimeoutMiddleware } from "./middleware/timeout";
@@ -93,6 +93,8 @@ app.use("*", createMiddleware(async (c, next) => {
   await next();
 }));
 
+app.use("*", ingressRateLimit);
+
 app.use("*", createMiddleware(async (c, next) => {
   await initAuth();
   await next();
@@ -148,7 +150,7 @@ export default {
       return wsResponse;
     }
 
-    return app.fetch(request);
+    return app.fetch(request, server);
   },
   websocket: websocketHandlers,
   idleTimeout: 255,

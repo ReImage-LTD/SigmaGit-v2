@@ -4,7 +4,6 @@ import { getAuth, verifyCredentials } from "../auth";
 import { db, users, verifications, accounts, sessions } from "@sigmagit/db";
 import { sendPasswordResetEmail, sendVerificationEmail } from "../email";
 import { isPasswordCompromised } from "../security/pwned";
-import { authRateLimitOnFailure } from "../middleware/rate-limit";
 import { generateOpaqueToken, hashToken } from "../security/token-hash";
 import { validatePassword } from "@sigmagit/lib";
 import { logSecurityEvent } from "../security/audit";
@@ -16,12 +15,6 @@ import { z } from "zod";
 
 const app = new Hono();
 
-app.use("/api/auth/sign-in/*", authRateLimitOnFailure);
-app.use("/api/auth/sign-up/*", authRateLimitOnFailure);
-app.use("/api/auth/verify-credentials", authRateLimitOnFailure);
-app.use("/api/auth/forgot-password", authRateLimitOnFailure);
-app.use("/api/auth/reset-password", authRateLimitOnFailure);
-app.use("/api/auth/resend-verification", authRateLimitOnFailure);
 
 const emailBodySchema = z
   .object({

@@ -1,7 +1,6 @@
 import {
   getClientIp,
   getRateLimitKey,
-  hashApiKeyForRateLimit,
   isAuthenticated,
   isExcludedPath,
   ipv4InCidr,
@@ -67,13 +66,13 @@ describe('resolveRateLimitTier', () => {
     expect(resolveRateLimitTier(mockContext('/alice/repo.git/info/refs', 'GET'))).toBe(null);
   });
 
-  it('does not treat raw x-api-key as session auth; uses api-key tier', () => {
+  it('does not treat raw x-api-key as session auth; uses anonymous tier', () => {
     const c = mockContext('/api/repositories', 'GET', {
       user: null,
       headers: { 'x-api-key': 'sigmagit_fake' },
     });
     expect(isAuthenticated(c)).toBe(false);
-    expect(resolveRateLimitTier(c)).toBe('api-key');
+    expect(resolveRateLimitTier(c)).toBe('unauth');
   });
 
   it('does not treat cookie containing sigmagit as authenticated', () => {
@@ -121,17 +120,11 @@ describe('trusted proxy resolution', () => {
 });
 
 describe('getRateLimitKey', () => {
-  it('hashes API keys instead of storing raw values', () => {
-    const raw = 'sigmagit_super_secret_key_value';
-    const c = mockContext('/api/x', 'GET', {
-      user: null,
-      headers: { 'x-api-key': raw },
-    });
-    const key = getRateLimitKey(c, 'api-key');
-    expect(key).toBe(`apikey:${hashApiKeyForRateLimit(raw)}`);
-    expect(key).not.toContain(raw);
+  it('never partitions anonymous limits by an unverified API key', () => {
+    const first = mockContext('/api/x', 'GET', { headers: { 'x-api-key': 'first' } });
+    const second = mockContext('/api/x', 'GET', { headers: { 'x-api-key': 'second' } });
+    expect(getRateLimitKey(first, 'unauth')).toBe(getRateLimitKey(second, 'unauth'));
   });
-
   it('uses user id for authenticated keys', () => {
     const c = mockContext('/api/x', 'GET', { user: { id: 'user-42' } });
     expect(getRateLimitKey(c, 'general')).toBe('user:user-42');
@@ -144,15 +137,5 @@ describe('isExcludedPath', () => {
     expect(isExcludedPath('/ws')).toBe(true);
     expect(isExcludedPath('/api/internal/foo')).toBe(false);
     expect(isExcludedPath('/api/settings')).toBe(false);
-  });
-});
-
-describe('hashApiKeyForRateLimit', () => {
-  it('is stable and truncated', () => {
-    const a = hashApiKeyForRateLimit('abc');
-    const b = hashApiKeyForRateLimit('abc');
-    expect(a).toBe(b);
-    expect(a.length).toBe(32);
-    expect(hashApiKeyForRateLimit('abc')).not.toBe(hashApiKeyForRateLimit('abd'));
   });
 });

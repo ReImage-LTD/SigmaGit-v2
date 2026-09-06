@@ -17,6 +17,12 @@ function envBool(name: string, fallback: boolean): boolean {
   return raw === '1' || raw.toLowerCase() === 'true';
 }
 
+function envPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const value = Number(raw);
+  return raw && /^[1-9]\d*$/.test(raw) && Number.isSafeInteger(value) ? value : fallback;
+}
+
 export function isProductionEnv(): boolean {
   return (
     process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT_NAME === 'production'
@@ -194,12 +200,12 @@ export type AppConfig = {
   apiUrl: string;
   webUrl: string;
   rateLimit: {
+    ingress: number;
     general: number;
     auth: number;
     write: number;
     search: number;
     unauth: number;
-    apiKey: number;
     publicWrite: number;
   };
   maxConcurrentRest: number;
@@ -313,16 +319,16 @@ function loadConfig(): AppConfig {
     apiUrl: process.env.API_URL || process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost:3001',
     webUrl: process.env.WEB_URL || 'localhost:3000',
     rateLimit: {
-      general: envInt('RATE_LIMIT_GENERAL', 500),
-      auth: envInt('RATE_LIMIT_AUTH', 5),
-      write: envInt('RATE_LIMIT_WRITE', 30),
-      search: envInt('RATE_LIMIT_SEARCH', 60),
-      unauth: envInt('RATE_LIMIT_UNAUTH', 120),
-      apiKey: envInt('RATE_LIMIT_API_KEY', 200),
-      publicWrite: envInt('RATE_LIMIT_PUBLIC_WRITE', 10),
+      ingress: envPositiveInt('RATE_LIMIT_INGRESS', 500),
+      general: envPositiveInt('RATE_LIMIT_GENERAL', 500),
+      auth: envPositiveInt('RATE_LIMIT_AUTH', 5),
+      write: envPositiveInt('RATE_LIMIT_WRITE', 30),
+      search: envPositiveInt('RATE_LIMIT_SEARCH', 60),
+      unauth: envPositiveInt('RATE_LIMIT_UNAUTH', 120),
+      publicWrite: envPositiveInt('RATE_LIMIT_PUBLIC_WRITE', 10),
     },
-    maxConcurrentRest: envInt('MAX_CONCURRENT_REQUESTS', 50),
-    maxConcurrentGit: envInt('MAX_CONCURRENT_GIT', 15),
+    maxConcurrentRest: envPositiveInt('MAX_CONCURRENT_REQUESTS', 50),
+    maxConcurrentGit: envPositiveInt('MAX_CONCURRENT_GIT', 15),
     email: {
       provider: (process.env.EMAIL_PROVIDER as 'resend' | 'smtp') || 'resend',
       resendApiKey: process.env.RESEND_API_KEY,
