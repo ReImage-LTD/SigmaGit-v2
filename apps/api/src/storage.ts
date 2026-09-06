@@ -57,6 +57,16 @@ async function runAdaptiveBatch<T>(
   }
 }
 
+/** Directory operations must never select sibling keys or the bucket root. */
+export function directoryPrefix(prefix: string): string {
+  const path = prefix.replace(/\/+$/, '');
+  if (!path || path.startsWith('/') || path.includes('\\') || path.includes('\0') ||
+      path.split('/').some(part => !part || part === '.' || part === '..')) {
+    throw new Error('Invalid storage directory prefix');
+  }
+  return path + '/';
+}
+
 export type StorageType = 's3' | 'local';
 
 export interface StorageBackend {
@@ -232,6 +242,7 @@ export class S3StorageBackend implements StorageBackend {
   }
 
   async deletePrefix(prefix: string): Promise<void> {
+    prefix = directoryPrefix(prefix);
     if (!this.client) {
       throw new Error('S3 is not configured');
     }
@@ -277,8 +288,10 @@ export class S3StorageBackend implements StorageBackend {
   }
 
   async copyPrefix(sourcePrefix: string, targetPrefix: string): Promise<void> {
-    const normalizedSource = sourcePrefix.replace(/\/$/, '');
-    const normalizedTarget = targetPrefix.replace(/\/$/, '');
+    const normalizedSource = directoryPrefix(sourcePrefix);
+    const normalizedTarget = directoryPrefix(targetPrefix);
+    if (normalizedSource === normalizedTarget || normalizedTarget.startsWith(normalizedSource) ||
+        normalizedSource.startsWith(normalizedTarget)) throw new Error('Overlapping storage prefixes');
     const baseBatchSize = Math.max(1, Math.min(20, config.optimizations.s3AdaptiveMaxConcurrency));
     const adaptiveEnabled = config.optimizations.s3AdaptiveCopyEnabled;
     let continuationToken: string | undefined;
@@ -291,7 +304,7 @@ export class S3StorageBackend implements StorageBackend {
       const response = await this.client.send(
         new ListObjectsV2Command({
           Bucket: this.bucket,
-          Prefix: sourcePrefix,
+          Prefix: normalizedSource,
           ContinuationToken: continuationToken,
         }),
         { abortSignal: requestSignal() },
@@ -540,8 +553,10 @@ class LocalStorageBackend implements StorageBackend {
       throw error;
     }
 
-    const normalizedSource = sourcePrefix.replace(/\/$/, '');
-    const normalizedTarget = targetPrefix.replace(/\/$/, '');
+    const normalizedSource = directoryPrefix(sourcePrefix);
+    const normalizedTarget = directoryPrefix(targetPrefix);
+    if (normalizedSource === normalizedTarget || normalizedTarget.startsWith(normalizedSource) ||
+        normalizedSource.startsWith(normalizedTarget)) throw new Error('Overlapping storage prefixes');
     const BATCH_SIZE = 20;
     let batch: Array<{ sourceKey: string; targetKey: string }> = [];
 
@@ -559,7 +574,7 @@ class LocalStorageBackend implements StorageBackend {
       );
     };
 
-    for await (const sourceKey of this.walkLocalKeys(sourcePath, normalizedSource)) {
+    for await (const sourceKey of this.walkLocalKeys(sourcePath, normalizedSource.slice(0, -1))) {
       const suffix = sourceKey.slice(normalizedSource.length);
       const targetKey = `${normalizedTarget}${suffix}`;
       batch.push({ sourceKey, targetKey });
