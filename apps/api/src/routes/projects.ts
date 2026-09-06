@@ -8,18 +8,55 @@ import {
   issues,
   pullRequests,
 } from '@sigmagit/db';
+import { canAccessRepository, canManageRepository } from '../lib/access';
 import { requireAuth, type AuthVariables } from '../middleware/auth';
 import { resolveRepositoryWithAccess } from '../lib/repo-helpers';
 import { eq, sql, and, asc, inArray } from 'drizzle-orm';
-import { canAccessRepository, canManageRepository } from '../lib/access';
+import { formatZodError } from '../middleware/validate';
 import { Hono } from 'hono';
+import { z } from 'zod';
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
-async function enrichProjectItem(item: any) {
+const positionSchema = z.number().int().min(0).max(2_147_483_647);
+const itemCreateSchema = z
+  .object({
+    columnId: z.string().uuid(),
+    issueId: z.string().uuid().optional(),
+    pullRequestId: z.string().uuid().optional(),
+    noteContent: z.string().trim().min(1).max(65_536).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      [value.issueId, value.pullRequestId, value.noteContent].filter((value) => value !== undefined)
+        .length === 1,
+    { message: 'Provide exactly one issue, pull request, or note' },
+  );
+const itemUpdateSchema = z
+  .object({
+    columnId: z.string().uuid().optional(),
+    position: positionSchema.optional(),
+    noteContent: z.string().max(65_536).optional(),
+  })
+  .strict();
+const itemReorderSchema = z
+  .object({
+    items: z
+      .array(
+        z
+          .object({ id: z.string().uuid(), columnId: z.string().uuid(), position: positionSchema })
+          .strict(),
+      )
+      .min(1)
+      .max(500),
+  })
+  .strict();
+
+async function enrichProjectItem(item: typeof projectItems.$inferSelect, repositoryId: string) {
   if (item.issueId) {
     const issue = await db.query.issues.findFirst({
-      where: eq(issues.id, item.issueId),
+      where: and(eq(issues.id, item.issueId), eq(issues.repositoryId, repositoryId)),
     });
     if (issue) {
       const author = await db.query.users.findFirst({
@@ -43,7 +80,10 @@ async function enrichProjectItem(item: any) {
 
   if (item.pullRequestId) {
     const pr = await db.query.pullRequests.findFirst({
-      where: eq(pullRequests.id, item.pullRequestId),
+      where: and(
+        eq(pullRequests.id, item.pullRequestId),
+        eq(pullRequests.repositoryId, repositoryId),
+      ),
     });
     if (pr) {
       const author = await db.query.users.findFirst({
@@ -181,42 +221,29 @@ app.get('/api/projects/:id', async (c) => {
   const allItems = await db
     .select()
     .from(projectItems)
-    .where(inArray(projectItems.columnId, columnIds))
+    .where(and(eq(projectItems.projectId, project.id), inArray(projectItems.columnId, columnIds)))
     .orderBy(asc(projectItems.position));
 
   const issueIds = [...new Set(allItems.filter((i) => i.issueId).map((i) => i.issueId!))];
   const prIds = [...new Set(allItems.filter((i) => i.pullRequestId).map((i) => i.pullRequestId!))];
 
-  const [issueRows, prRows, usersById] = await Promise.all([
-    issueIds.length === 0
-      ? Promise.resolve([])
-      : db.select().from(issues).where(inArray(issues.id, issueIds)),
-    prIds.length === 0
-      ? Promise.resolve([])
-      : db.select().from(pullRequests).where(inArray(pullRequests.id, prIds)),
-    (async () => {
-      const authorIds: string[] = [];
-      if (issueIds.length) {
-        const issuesAuth = await db
-          .select({ authorId: issues.authorId })
+  const [issueRows, prRows] = await Promise.all([
+    issueIds.length
+      ? db
+          .select()
           .from(issues)
-          .where(inArray(issues.id, issueIds));
-        authorIds.push(...issuesAuth.map((r) => r.authorId));
-      }
-      if (prIds.length) {
-        const prsAuth = await db
-          .select({ authorId: pullRequests.authorId })
+          .where(and(inArray(issues.id, issueIds), eq(issues.repositoryId, repo.id)))
+      : Promise.resolve([]),
+    prIds.length
+      ? db
+          .select()
           .from(pullRequests)
-          .where(inArray(pullRequests.id, prIds));
-        authorIds.push(...prsAuth.map((r) => r.authorId));
-      }
-      const uniq = [...new Set(authorIds)];
-      if (uniq.length === 0)
-        return new Map<
-          string,
-          { id: string; username: string; name: string; avatarUrl: string | null }
-        >();
-      const rows = await db
+          .where(and(inArray(pullRequests.id, prIds), eq(pullRequests.repositoryId, repo.id)))
+      : Promise.resolve([]),
+  ]);
+  const authorIds = [...new Set([...issueRows, ...prRows].map((item) => item.authorId))];
+  const authors = authorIds.length
+    ? await db
         .select({
           id: users.id,
           username: users.username,
@@ -224,17 +251,14 @@ app.get('/api/projects/:id', async (c) => {
           avatarUrl: users.avatarUrl,
         })
         .from(users)
-        .where(inArray(users.id, uniq));
-      return new Map(rows.map((u) => [u.id, u]));
-    })(),
-  ]);
+        .where(inArray(users.id, authorIds))
+    : [];
+  const usersById = new Map(authors.map((author) => [author.id, author]));
 
   const issuesById = new Map(issueRows.map((i) => [i.id, i]));
   const prsById = new Map(prRows.map((p) => [p.id, p]));
 
-  function enrichItem(
-    item: typeof projectItems.$inferSelect,
-  ):
+  function enrichItem(item: typeof projectItems.$inferSelect):
     | {
         id: string;
         type: 'issue';
@@ -502,12 +526,9 @@ app.delete('/api/projects/columns/:id', requireAuth, async (c) => {
 app.post('/api/projects/:id/items', requireAuth, async (c) => {
   const id = c.req.param('id');
   const user = c.get('user')!;
-  const body = await c.req.json<{
-    columnId: string;
-    issueId?: string;
-    pullRequestId?: string;
-    noteContent?: string;
-  }>();
+  const parsed = itemCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json(formatZodError(parsed.error), 400);
+  const body = parsed.data;
 
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, id),
@@ -525,12 +546,30 @@ app.post('/api/projects/:id/items', requireAuth, async (c) => {
     return c.json({ error: 'Only repo owner can add items' }, 403);
   }
 
-  if (!body.columnId) {
-    return c.json({ error: 'Column is required' }, 400);
+  const column = await db.query.projectColumns.findFirst({
+    where: and(eq(projectColumns.id, body.columnId), eq(projectColumns.projectId, project.id)),
+  });
+  if (!column) return c.json({ error: 'Invalid column for project' }, 400);
+  if (
+    body.issueId &&
+    !(await db.query.issues.findFirst({
+      where: and(eq(issues.id, body.issueId), eq(issues.repositoryId, project.repositoryId)),
+      columns: { id: true },
+    }))
+  ) {
+    return c.json({ error: 'Issue not found' }, 404);
   }
-
-  if (!body.issueId && !body.pullRequestId && !body.noteContent) {
-    return c.json({ error: 'Must provide an issue, PR, or note content' }, 400);
+  if (
+    body.pullRequestId &&
+    !(await db.query.pullRequests.findFirst({
+      where: and(
+        eq(pullRequests.id, body.pullRequestId),
+        eq(pullRequests.repositoryId, project.repositoryId),
+      ),
+      columns: { id: true },
+    }))
+  ) {
+    return c.json({ error: 'Pull request not found' }, 404);
   }
 
   const [maxPosition] = await db
@@ -550,7 +589,7 @@ app.post('/api/projects/:id/items', requireAuth, async (c) => {
     })
     .returning();
 
-  const enriched = await enrichProjectItem(inserted);
+  const enriched = await enrichProjectItem(inserted, project.repositoryId);
 
   return c.json(enriched);
 });
@@ -558,7 +597,9 @@ app.post('/api/projects/:id/items', requireAuth, async (c) => {
 app.patch('/api/projects/items/:id', requireAuth, async (c) => {
   const id = c.req.param('id');
   const user = c.get('user')!;
-  const body = await c.req.json<{ columnId?: string; position?: number; noteContent?: string }>();
+  const parsed = itemUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json(formatZodError(parsed.error), 400);
+  const body = parsed.data;
 
   const item = await db.query.projectItems.findFirst({
     where: eq(projectItems.id, id),
@@ -582,7 +623,19 @@ app.patch('/api/projects/items/:id', requireAuth, async (c) => {
     return c.json({ error: 'Only repo owner can update items' }, 403);
   }
 
-  const updates: Record<string, any> = {};
+  if (
+    body.columnId &&
+    !(await db.query.projectColumns.findFirst({
+      where: and(
+        eq(projectColumns.id, body.columnId),
+        eq(projectColumns.projectId, item.projectId),
+      ),
+      columns: { id: true },
+    }))
+  ) {
+    return c.json({ error: 'Invalid column for project' }, 400);
+  }
+  const updates: Partial<typeof projectItems.$inferInsert> = {};
   if (body.columnId !== undefined) updates.columnId = body.columnId;
   if (body.position !== undefined) updates.position = body.position;
   if (body.noteContent !== undefined) updates.noteContent = body.noteContent;
@@ -596,7 +649,9 @@ app.patch('/api/projects/items/:id', requireAuth, async (c) => {
 
 app.post('/api/projects/items/reorder', requireAuth, async (c) => {
   const user = c.get('user')!;
-  const body = await c.req.json<{ items: { id: string; columnId: string; position: number }[] }>();
+  const parsed = itemReorderSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json(formatZodError(parsed.error), 400);
+  const body = parsed.data;
 
   if (!body.items?.length) {
     return c.json({ error: 'Items array is required' }, 400);
@@ -629,7 +684,7 @@ app.post('/api/projects/items/reorder', requireAuth, async (c) => {
       })
     : null;
 
-  if (!repo || user.id !== repo.ownerId) {
+  if (!project || !repo || user.id !== repo.ownerId) {
     return c.json({ error: 'Only repo owner can reorder items' }, 403);
   }
 

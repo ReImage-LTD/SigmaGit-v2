@@ -163,6 +163,8 @@ jobs:
   const { checkReleaseAuthorization } = await import('./release-authorization');
   const { checkOrganizationAuthorization } = await import('./organization-authorization');
   await checkOrganizationAuthorization(baseURL);
+  const { checkProjectAuthorization } = await import('./project-authorization');
+  await checkProjectAuthorization(baseURL);
   await checkReleaseAuthorization({
     baseURL,
     ownerId,
