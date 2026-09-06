@@ -1,3 +1,4 @@
+import { createMemoryPressure, memoryBudgetBytes } from '../lib/memory-pressure';
 import { isGitProtocolPath, isGitReceivePath } from '../lib/request-path';
 import { RequestBodyTooLargeError } from '../lib/request-body';
 import { boundedStream } from '../lib/bounded-stream';
@@ -5,12 +6,8 @@ import { createMiddleware } from 'hono/factory';
 
 const MAX_REQUEST_SIZE = 100 * 1024 * 1024; // 100MB
 const MAX_RESPONSE_SIZE = 50 * 1024 * 1024; // 50MB
-const MEMORY_THRESHOLD = 0.92; // 92% of heap
-// Don't reject based on ratio alone until the heap is meaningfully large.
-// Bun starts with a small heap that grows on demand, so heapUsed/heapTotal
-// can spike above 80% at startup even when there's no real memory pressure.
-// Set to 1GB so we only start rejecting when we're truly close to 2GB ceiling.
-const MIN_HEAP_TO_ENFORCE = 1024 * 1024 * 1024; // 1 GB
+export const MEMORY_BUDGET_BYTES = memoryBudgetBytes(process.env.API_MEMORY_BUDGET_MB);
+const memoryPressure = createMemoryPressure(MEMORY_BUDGET_BYTES);
 export const GIT_PUSH_SIZE_LIMIT = 100 * 1024 * 1024; // 100MB
 export const GIT_MAX_OBJECTS_PER_PUSH = 50000;
 export const GIT_MAX_UPLOAD_PACK_OBJECTS = 10000;
@@ -46,35 +43,17 @@ export function resolveBodyLimitForPath(path: string): number {
 }
 
 export function shouldRejectRequest(): boolean {
-  try {
-    const usage = process.memoryUsage();
-    const total = usage.heapTotal;
-    const used = usage.heapUsed;
-    // Only enforce the threshold once the heap has grown to a meaningful size,
-    // otherwise Bun's small startup heap makes the ratio always look critical.
-    return total >= MIN_HEAP_TO_ENFORCE && used / total > MEMORY_THRESHOLD;
-  } catch {
-    return false;
-  }
+  return memoryPressure.shouldReject(process.memoryUsage().rss);
 }
 
 export function getMemoryUsage(): { used: number; total: number; percent: number } {
-  const usage = process.memoryUsage();
-  const used = usage.heapUsed;
-  const total = usage.heapTotal;
-  // In Bun/Node.js, heapUsed can exceed heapTotal during heap growth
-  // This is normal - cap the percentage at 1.0 for display purposes
-  const percent = total > 0 ? Math.min(used / total, 1.0) : 0;
-  return {
-    used,
-    total,
-    percent,
-  };
+  const used = process.memoryUsage().rss;
+  return { used, total: MEMORY_BUDGET_BYTES, percent: used / MEMORY_BUDGET_BYTES };
 }
 
 export const memoryMiddleware = createMiddleware(async (c, next) => {
   if (shouldRejectRequest()) {
-    console.warn('[Memory] Threshold exceeded, rejecting request');
+    c.header('Retry-After', '5');
     return c.json({ error: 'Server busy, please try again later' }, 503);
   }
 
@@ -232,16 +211,11 @@ export async function measureMemory<T>(fn: () => Promise<T>, label: string): Pro
 }
 
 export function scheduleGC() {
-  if (global.gc) {
-    global.gc();
+  if (global.gc && memoryPressure.shouldCollect(process.memoryUsage().rss)) {
+    setImmediate(() => global.gc?.());
   }
 }
 
 export function forceGCIfNeeded(): void {
-  const usage = getMemoryUsage();
-
-  if (usage.percent > 0.9) {
-    console.warn(`[Memory] Usage at ${(usage.percent * 100).toFixed(2)}%, forcing GC`);
-    scheduleGC();
-  }
+  scheduleGC();
 }

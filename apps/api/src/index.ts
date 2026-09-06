@@ -13,6 +13,7 @@ import {
   gitLimitsMiddleware,
   responseSizeMiddleware,
   BODY_LIMITS,
+  shouldRejectRequest,
 } from "./middleware/limits";
 import rateLimitMiddleware, { ingressRateLimit } from "./middleware/rate-limit";
 import { authMiddleware } from "./middleware/auth";
@@ -192,7 +193,7 @@ export default {
     const path = new URL(request.url).pathname;
     if ((request.method === 'GET' || request.method === 'HEAD') &&
         ['/health', '/api/health', '/ready', '/api/ready'].includes(path)) {
-      const ready = path.endsWith('/health') || await isReady();
+      const ready = path.endsWith('/health') || (!shouldRejectRequest() && await isReady());
       return Response.json({ status: ready ? 'ok' : 'unavailable' }, {
         status: ready ? 200 : 503,
         headers: { ...buildSecurityHeaders(config.isProduction), 'Cache-Control': 'no-store' },

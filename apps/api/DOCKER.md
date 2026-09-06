@@ -19,6 +19,12 @@ Create the root `.env` on the deployment host; never commit it. Configure:
 - `INSTALLATION_SECRET`: a separate random secret of at least 32 characters for
   first-time installation. Without it, production installation is disabled.
 - Configure SMTP or Resend before relying on email verification/password resets.
+- `API_MEMORY_BUDGET_MB` sets the API process RSS budget (default 1024 MiB).
+  Compose defaults `API_MEMORY_LIMIT` to `1280m` to leave headroom above that budget.
+  When changing container limits, keep the process budget below the container limit.
+  Admission and readiness return 503 at 92% of the budget and recover below 85%.
+  Liveness stays available. Forced collection is limited to once per minute above
+  90% RSS usage and runs outside the current request callback.
 - `RUNNER_REGISTRATION_SECRET`: a separate random secret, required in production.
 
 The supplied Caddyfile contains deployment-specific hostnames. Set those to your

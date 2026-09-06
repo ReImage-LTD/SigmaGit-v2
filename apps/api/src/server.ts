@@ -1,12 +1,14 @@
 import { stopRunnerHealthWorker } from './workers/runner-health';
 import { stopMigrationWorker } from './workers/migration';
 import options from './index';
+import { stopMemoryMonitoring } from './monitoring';
 
 const server = Bun.serve(options);
 let stopping = false;
 async function shutdown() {
   if (stopping) return;
   stopping = true;
+  stopMemoryMonitoring();
   console.log('[API] Draining connections');
   const deadline = setTimeout(() => {
     void server.stop(true);

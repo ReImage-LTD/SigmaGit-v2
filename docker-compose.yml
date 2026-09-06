@@ -66,6 +66,7 @@ services:
     restart: unless-stopped
     init: true
     stop_grace_period: 30s
+    mem_limit: ${API_MEMORY_LIMIT:-1280m}
     volumes:
       - repositories_data:/data/repos
     env_file:
@@ -74,6 +75,7 @@ services:
       STORAGE_LOCAL_PATH: /data/repos
       NODE_ENV: production
       PORT: '3001'
+      API_MEMORY_BUDGET_MB: ${API_MEMORY_BUDGET_MB:-1024}
       TRUST_PROXY: 'true'
       TRUSTED_PROXY_CIDRS: 172.16.0.0/12
       REDIS_SESSION_URL: redis://redis-session:6379
