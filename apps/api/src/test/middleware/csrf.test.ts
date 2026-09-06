@@ -49,7 +49,7 @@ describe('csrfMiddleware', () => {
     expect(res.status).toBe(403);
   });
 
-  it('allows bearer / api-key without origin (non-browser clients)', async () => {
+  it('rejects unverified bearer / api-key headers on cookie-authenticated requests)', async () => {
     const app = buildApp();
     const bearer = await app.request('http://localhost/api/x', {
       method: 'POST',
@@ -60,7 +60,7 @@ describe('csrfMiddleware', () => {
       },
       body: '{}',
     });
-    expect(bearer.status).toBe(200);
+    expect(bearer.status).toBe(403);
 
     const key = await app.request('http://localhost/api/x', {
       method: 'POST',
@@ -71,7 +71,7 @@ describe('csrfMiddleware', () => {
       },
       body: '{}',
     });
-    expect(key.status).toBe(200);
+    expect(key.status).toBe(403);
   });
 
   it('allows allowed localhost origin in development', async () => {

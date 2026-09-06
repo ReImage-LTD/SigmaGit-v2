@@ -288,12 +288,13 @@ app.get('/api/repositories/:owner/:name/issues', async (c) => {
 
   const userEmojisByIssue = new Map<string, string[]>();
   for (const r of userReactionRows) {
+    if (!r.issueId) continue;
     const list = userEmojisByIssue.get(r.issueId) ?? [];
     if (!list.includes(r.emoji)) list.push(r.emoji);
     userEmojisByIssue.set(r.issueId, list);
   }
   const reactionsByIssueId = buildIssueReactionsGrouped(
-    reactionCounts.map((c) => ({ issueId: c.issueId, emoji: c.emoji, count: c.count })),
+    reactionCounts.flatMap((c) => c.issueId ? [{ issueId: c.issueId, emoji: c.emoji, count: c.count }] : []),
     userEmojisByIssue,
   );
 

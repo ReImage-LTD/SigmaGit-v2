@@ -406,7 +406,7 @@ app.patch(
       );
     }
 
-    const { validatePassword } = await import('@sigmagit/lib');
+    const { validatePassword } = await import('@sigmagit/lib/validation');
     const passwordValidation = validatePassword(body.newPassword);
     if (!passwordValidation.valid) {
       return c.json({ error: passwordValidation.error }, 400);

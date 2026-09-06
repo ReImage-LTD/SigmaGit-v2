@@ -367,12 +367,14 @@ async function enrichPullRequestsBatch(prRows: typeof pullRequests.$inferSelect[
   }
   const userEmojisByPrId = new Map<string, string[]>();
   for (const r of userReactionRows) {
+    if (!r.pullRequestId) continue;
     const list = userEmojisByPrId.get(r.pullRequestId) ?? [];
     if (!list.includes(r.emoji)) list.push(r.emoji);
     userEmojisByPrId.set(r.pullRequestId, list);
   }
   const reactionsByPrId = new Map<string, { emoji: string; count: number; reacted: boolean }[]>();
   for (const c of reactionCounts) {
+    if (!c.pullRequestId) continue;
     const list = reactionsByPrId.get(c.pullRequestId) ?? [];
     list.push({
       emoji: c.emoji,

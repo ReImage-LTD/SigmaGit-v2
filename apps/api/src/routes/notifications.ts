@@ -19,7 +19,7 @@ async function getUsersByIds(userIds: string[]) {
   return new Map(rows.map((u) => [u.id, u]));
 }
 
-async function enrichNotification(notification: { id: string; type: string; title: string; body: string | null; resourceType: string; resourceId: string | null; repoOwner: string | null; repoName: string | null; resourceNumber: number | null; actorId: string | null; read: boolean; createdAt: Date }) {
+async function enrichNotification(notification: { id: string; type: string; title: string; body: string | null; resourceType: string | null; resourceId: string | null; repoOwner: string | null; repoName: string | null; resourceNumber: number | null; actorId: string | null; read: boolean; createdAt: Date }) {
   const actor = notification.actorId ? (await getUsersByIds([notification.actorId])).get(notification.actorId) ?? null : null;
   return {
     id: notification.id,

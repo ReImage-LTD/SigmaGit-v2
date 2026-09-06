@@ -1,9 +1,11 @@
-import { Hono } from "hono";
-import { sql, eq } from "drizzle-orm";
-import { db, users } from "@sigmagit/db";
-import { validateUsername, validatePassword } from "@sigmagit/lib";
-import { getAuth } from "../auth";
-import { getValidated, installBodySchema, zValidator } from "../middleware/validate";
+import { getValidated, installBodySchema, zValidator } from '../middleware/validate';
+import { validateUsername, validatePassword } from '@sigmagit/lib/validation';
+import { isStrongSecret, secureCompare } from '../security/secrets';
+import { db, users, accounts } from '@sigmagit/db';
+import { hashPassword } from 'better-auth/crypto';
+import { config } from '../config';
+import { sql } from 'drizzle-orm';
+import { Hono } from 'hono';
 
 const app = new Hono();
 
@@ -11,12 +13,12 @@ const app = new Hono();
 export const INSTALL_LOCK_KEY = 882_451_013;
 
 function rowAcquired(result: unknown): boolean | null {
-  if (Array.isArray(result) && result[0] && typeof result[0] === "object") {
+  if (Array.isArray(result) && result[0] && typeof result[0] === 'object') {
     const v = (result[0] as { acquired?: boolean | string | number }).acquired;
-    if (v === true || v === "t" || v === 1 || v === "true") return true;
-    if (v === false || v === "f" || v === 0 || v === "false") return false;
+    if (v === true || v === 't' || v === 1 || v === 'true') return true;
+    if (v === false || v === 'f' || v === 0 || v === 'false') return false;
   }
-  if (result && typeof result === "object" && "rows" in result) {
+  if (result && typeof result === 'object' && 'rows' in result) {
     return rowAcquired((result as { rows: unknown }).rows);
   }
   return null;
@@ -25,8 +27,15 @@ function rowAcquired(result: unknown): boolean | null {
 // First-run install: create the initial admin account.
 // Public endpoint, but only works while the instance has zero users.
 // Uses a PostgreSQL advisory lock so concurrent requests cannot all become admin.
-app.post("/api/install", zValidator("json", installBodySchema), async (c) => {
-  const body = getValidated<typeof installBodySchema._type>(c, "json");
+app.post('/api/install', zValidator('json', installBodySchema), async (c) => {
+  if (config.isProduction) {
+    const secret = process.env.INSTALLATION_SECRET;
+    if (!isStrongSecret(secret)) return c.json({ error: 'Installation is disabled' }, 503);
+    if (!secureCompare(c.req.header('authorization'), `Bearer ${secret}`)) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+  }
+  const body = getValidated<typeof installBodySchema._output>(c, 'json');
 
   const name = body.name.trim();
   const username = body.username.trim().toLowerCase();
@@ -42,47 +51,26 @@ app.post("/api/install", zValidator("json", installBodySchema), async (c) => {
     return c.json({ error: passwordValidation.error }, 400);
   }
 
-  // Fast path: already initialized.
-  const [earlyCount] = await db
-    .select({ count: sql<number>`COUNT(*)::int` })
-    .from(users);
-  if (Number(earlyCount?.count ?? 0) > 0) {
-    return c.json({ error: "Instance already initialized" }, 409);
-  }
-
-  // Serialize install attempts. Blocking lock is fine — install is one-time.
-  await db.execute(sql`SELECT pg_advisory_lock(${INSTALL_LOCK_KEY})`);
-
-  try {
-    const [userCountRow] = await db
-      .select({ count: sql<number>`COUNT(*)::int` })
-      .from(users);
-    if (Number(userCountRow?.count ?? 0) > 0) {
-      return c.json({ error: "Instance already initialized" }, 409);
-    }
-
-    const auth = getAuth();
-    const signUpBody = { email, password: password as string, name, username };
-    try {
-      await auth.api.signUpEmail({ body: signUpBody });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to create admin account";
-      return c.json({ error: message }, 400);
-    }
-
-    await db
-      .update(users)
-      .set({ role: "admin", updatedAt: new Date() })
-      .where(eq(users.email, email));
-
-    return c.json({ success: true });
-  } finally {
-    try {
-      await db.execute(sql`SELECT pg_advisory_unlock(${INSTALL_LOCK_KEY})`);
-    } catch (err) {
-      console.error("[Install] Failed to release advisory lock:", err);
-    }
-  }
+  const passwordHash = await hashPassword(password);
+  const created = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${INSTALL_LOCK_KEY})`);
+    if ((await tx.select({ id: users.id }).from(users).limit(1)).length) return false;
+    const id = crypto.randomUUID();
+    await tx
+      .insert(users)
+      .values({ id, name, username, email: email.toLowerCase(), role: 'admin' });
+    await tx.insert(accounts).values({
+      id: crypto.randomUUID(),
+      userId: id,
+      accountId: id,
+      providerId: 'credential',
+      password: passwordHash,
+    });
+    return true;
+  });
+  return created
+    ? c.json({ success: true })
+    : c.json({ error: 'Instance already initialized' }, 409);
 });
 
 // Exported for unit tests of lock key stability.

@@ -5,7 +5,7 @@ import { db, users, verifications, accounts, sessions } from "@sigmagit/db";
 import { sendPasswordResetEmail, sendVerificationEmail } from "../email";
 import { isPasswordCompromised } from "../security/pwned";
 import { generateOpaqueToken, hashToken } from "../security/token-hash";
-import { validatePassword } from "@sigmagit/lib";
+import { validatePassword } from "@sigmagit/lib/validation";
 import { logSecurityEvent } from "../security/audit";
 import {
   getValidated,

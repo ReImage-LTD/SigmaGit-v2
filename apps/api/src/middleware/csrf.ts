@@ -21,17 +21,6 @@ export const csrfMiddleware = createMiddleware<{ Variables: AuthVariables }>(asy
     return;
   }
 
-  // Non-browser / service clients: explicit API key or Authorization bearer.
-  const hasApiKey = Boolean(c.req.header('x-api-key'));
-  const authz = c.req.header('authorization');
-  const hasBearer = Boolean(authz && /^Bearer\s+\S+/i.test(authz));
-  const hasInternal = Boolean(c.req.header('x-internal-auth'));
-
-  if (hasApiKey || hasBearer || hasInternal) {
-    await next();
-    return;
-  }
-
   // If no user session, nothing cookie-based to protect (public endpoints handle their own auth).
   const user = c.get('user');
   if (!user) {

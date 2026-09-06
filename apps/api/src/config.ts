@@ -1,5 +1,5 @@
 import { isStrongSecret, MIN_SECRET_LENGTH } from './security/secrets';
-import { normalizeUrl } from '@sigmagit/lib';
+import { normalizeUrl } from '@sigmagit/lib/string';
 import { z } from 'zod';
 
 const devOrigins = ['http://localhost:3000', 'http://localhost:3001'];

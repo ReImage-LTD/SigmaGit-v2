@@ -165,12 +165,14 @@ async function enrichDiscussionsBatch(
 
   const userEmojisByDiscussionId = new Map<string, string[]>();
   for (const r of userReactionRows) {
+    if (!r.discussionId) continue;
     const list = userEmojisByDiscussionId.get(r.discussionId) ?? [];
     if (!list.includes(r.emoji)) list.push(r.emoji);
     userEmojisByDiscussionId.set(r.discussionId, list);
   }
   const reactionsByDiscussionId = new Map<string, { emoji: string; count: number; reacted: boolean }[]>();
   for (const c of reactionCounts) {
+    if (!c.discussionId) continue;
     const list = reactionsByDiscussionId.get(c.discussionId) ?? [];
     list.push({
       emoji: c.emoji,

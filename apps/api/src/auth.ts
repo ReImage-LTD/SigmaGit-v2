@@ -276,8 +276,9 @@ function isAllowedEmailDomain(email: string): boolean {
   return ALLOWED_EMAIL_DOMAINS.includes(domain);
 }
 
-let authInstance: ReturnType<typeof betterAuth> | null = null;
-let authInitPromise: Promise<ReturnType<typeof betterAuth>> | null = null;
+type AppAuth = Awaited<ReturnType<typeof createAuthInstance>>;
+let authInstance: AppAuth | null = null;
+let authInitPromise: Promise<AppAuth> | null = null;
 
 export const initAuth = async () => {
   if (authInstance) {
@@ -288,175 +289,182 @@ export const initAuth = async () => {
     return authInitPromise;
   }
 
-  authInitPromise = (async () => {
-    const redis = await getRedisSession();
-    const apiUrl = getApiUrl();
-    const githubEnabled = Boolean(config.github.clientId && config.github.clientSecret);
-
-    authInstance = betterAuth({
-      baseURL: apiUrl,
-      database: drizzleAdapter(db, {
-        provider: 'pg',
-        schema: {
-          user: users,
-          session: sessions,
-          account: accounts,
-          verification: verifications,
-          apikey: apiKeys,
-          passkey: passkeys,
-        },
-      }),
-      secondaryStorage: redis
-        ? {
-            get: async (key) => {
-              try {
-                return await redis.get(key);
-              } catch (err) {
-                console.error("[Redis] get error:", err instanceof Error ? err.message : "Unknown error");
-                return null;
-              }
-            },
-            ...createAtomicAuthStorage(redis),
-            set: async (key, value, ttl) => {
-              try {
-                if (ttl) await redis.set(key, value, { EX: ttl });
-                else await redis.set(key, value);
-              } catch (err) {
-                console.warn("[Redis] set error (session will fall back to DB):", err instanceof Error ? err.message : "Unknown error");
-              }
-            },
-            delete: async (key) => {
-              try {
-                await redis.del(key);
-              } catch (err) {
-                console.warn("[Redis] delete error:", err instanceof Error ? err.message : "Unknown error");
-              }
-            },
-          }
-        : undefined,
-      session: {
-        storeSessionInDatabase: true,
-      },
-      trustedOrigins: getTrustedOrigins(),
-      emailAndPassword: {
-        enabled: true,
-        // Prefer verified emails for new accounts. Existing unverified users can
-        // still sign in; sensitive routes may require verification separately.
-        // Full gate uses REQUIRE_EMAIL_VERIFICATION=true when ready for cutover.
-        requireEmailVerification: process.env.REQUIRE_EMAIL_VERIFICATION === 'true',
-        sendResetPassword: async ({ user, url, token }, request) => {
-          // Prefer custom /api/auth/forgot-password which stores hashed tokens.
-          // Better-auth built-in reset still used by some clients — hash not available here.
-          sendPasswordResetEmail(user.email, token, user.name);
-        },
-      },
-      socialProviders: githubEnabled
-        ? {
-            github: {
-              clientId: config.github.clientId as string,
-              clientSecret: config.github.clientSecret as string,
-              scope: ["read:user", "user:email"],
-            },
-          }
-        : undefined,
-      plugins: [
-        haveIBeenPwned({
-          customPasswordCompromisedMessage: "Please choose a more secure password.",
-        }),
-        apiKey({
-          schema: { apikey: { fields: { referenceId: 'userId' } } },
-          defaultPrefix: 'sigmagit_',
-          rateLimit: {
-            enabled: true,
-            maxRequests: 1000,
-            timeWindow: 60_000,
-          },
-        }),
-        passkey({
-          rpID: new URL(getWebUrl()).hostname,
-          rpName: 'sigmagit',
-          origin: getWebUrl(),
-          authenticatorSelection: {
-            authenticatorAttachment: undefined,
-            residentKey: 'preferred',
-            userVerification: 'required',
-          },
-        }),
-      ],
-      user: {
-        fields: { image: 'avatarUrl' },
-        additionalFields: {
-          username: {
-            type: 'string',
-            required: true,
-            input: true,
-          },
-          role: {
-            type: 'string',
-            required: false,
-            input: false,
-            returned: true,
-          },
-        },
-      },
-      advanced: {
-        // Enforce Origin/CSRF checks for auth requests against trustedOrigins.
-        disableOriginCheck: false,
-        cookiePrefix: config.nodeEnv === 'production' ? 'sigmagit' : 'sigmagit_dev',
-        defaultCookieAttributes: {
-          domain: getCookieDomain(),
-          secure: config.nodeEnv === 'production',
-          sameSite: 'lax' as const,
-          path: '/',
-        },
-      },
-      databaseHooks: {
-        user: {
-          create: {
-            before: async (user) => {
-              if (isBlockedEmailDomain(user.email)) {
-                throw new APIError('BAD_REQUEST', {
-                  message:
-                    'This email domain is blocked. Please use a different email address.',
-                });
-              }
-
-              // The very first account (first-run install/admin) is exempt from the
-              // allowed-domain restriction so self-hosters can use any email.
-              const [{ count: existingUsers }] = await db
-                .select({ count: sql<number>`COUNT(*)::int` })
-                .from(users);
-              const isFirstUser = Number(existingUsers) === 0;
-
-              if (!isFirstUser && config.emailDomainRestriction.enabled && !isAllowedEmailDomain(user.email)) {
-                throw new APIError('BAD_REQUEST', {
-                  message:
-                    'Please use an email from a supported provider (Gmail, Hotmail, Outlook, Yahoo, or iCloud).',
-                });
-              }
-
-              const username = (user as { username?: string }).username;
-              if (username) {
-                const validation = isValidUsername(username);
-                if (!validation.valid) {
-                  throw new APIError('BAD_REQUEST', {
-                    message: validation.error,
-                  });
-                }
-              }
-
-              return { data: user };
-            },
-          },
-        },
-      },
+  authInitPromise = createAuthInstance()
+    .then((auth) => {
+      authInstance = auth;
+      return auth;
+    })
+    .catch((error) => {
+      authInitPromise = null;
+      throw error;
     });
-
-    return authInstance;
-  })();
-
   return authInitPromise;
 };
+
+async function createAuthInstance() {
+  const apiUrl = getApiUrl();
+  const githubEnabled = Boolean(config.github.clientId && config.github.clientSecret);
+
+  return betterAuth({
+    baseURL: apiUrl,
+    database: drizzleAdapter(db, {
+      provider: 'pg',
+      schema: {
+        user: users,
+        session: sessions,
+        account: accounts,
+        verification: verifications,
+        apikey: apiKeys,
+        passkey: passkeys,
+      },
+    }),
+    secondaryStorage: config.redisSessionUrl
+      ? {
+          get: async (key) => (await requireSessionRedis()).get(key),
+          set: async (key, value, ttl) => {
+            const redis = await requireSessionRedis();
+            if (ttl) await redis.set(key, value, { EX: ttl });
+            else await redis.set(key, value);
+          },
+          delete: async (key) => {
+            await (await requireSessionRedis()).del(key);
+          },
+          getAndDelete: async (key) =>
+            createAtomicAuthStorage(await requireSessionRedis()).getAndDelete(key),
+          increment: async (key, ttl) =>
+            createAtomicAuthStorage(await requireSessionRedis()).increment(key, ttl),
+        }
+      : undefined,
+    session: {
+      storeSessionInDatabase: true,
+    },
+    trustedOrigins: getTrustedOrigins(),
+    emailAndPassword: {
+      enabled: true,
+      // Prefer verified emails for new accounts. Existing unverified users can
+      // still sign in; sensitive routes may require verification separately.
+      // Full gate uses REQUIRE_EMAIL_VERIFICATION=true when ready for cutover.
+      requireEmailVerification: process.env.REQUIRE_EMAIL_VERIFICATION === 'true',
+      sendResetPassword: async ({ user, url, token }, request) => {
+        // Prefer custom /api/auth/forgot-password which stores hashed tokens.
+        // Better-auth built-in reset still used by some clients — hash not available here.
+        sendPasswordResetEmail(user.email, token, user.name);
+      },
+    },
+    socialProviders: githubEnabled
+      ? {
+          github: {
+            clientId: config.github.clientId as string,
+            clientSecret: config.github.clientSecret as string,
+            scope: ['read:user', 'user:email'],
+          },
+        }
+      : undefined,
+    plugins: [
+      haveIBeenPwned({
+        customPasswordCompromisedMessage: 'Please choose a more secure password.',
+      }),
+      apiKey({
+        schema: { apikey: { fields: { referenceId: 'userId' } } },
+        defaultPrefix: 'sigmagit_',
+        rateLimit: {
+          enabled: true,
+          maxRequests: 1000,
+          timeWindow: 60_000,
+        },
+      }),
+      passkey({
+        rpID: new URL(getWebUrl()).hostname,
+        rpName: 'sigmagit',
+        origin: getWebUrl(),
+        authenticatorSelection: {
+          authenticatorAttachment: undefined,
+          residentKey: 'preferred',
+          userVerification: 'required',
+        },
+      }),
+    ],
+    user: {
+      fields: { image: 'avatarUrl' },
+      additionalFields: {
+        username: {
+          type: 'string',
+          required: true,
+          input: true,
+        },
+        role: {
+          type: 'string',
+          required: false,
+          input: false,
+          returned: true,
+        },
+      },
+    },
+    advanced: {
+      // Enforce Origin/CSRF checks for auth requests against trustedOrigins.
+      disableOriginCheck: false,
+      cookiePrefix: config.isProduction ? 'sigmagit' : 'sigmagit_dev',
+      defaultCookieAttributes: {
+        domain: getCookieDomain(),
+        secure: config.isProduction,
+        sameSite: 'lax' as const,
+        path: '/',
+      },
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => {
+            if (isBlockedEmailDomain(user.email)) {
+              throw new APIError('BAD_REQUEST', {
+                message: 'This email domain is blocked. Please use a different email address.',
+              });
+            }
+
+            // The very first account (first-run install/admin) is exempt from the
+            // allowed-domain restriction so self-hosters can use any email.
+            const [{ count: existingUsers }] = await db
+              .select({ count: sql<number>`COUNT(*)::int` })
+              .from(users);
+            const isFirstUser = Number(existingUsers) === 0;
+            if (isFirstUser && config.isProduction) {
+              throw new APIError('FORBIDDEN', { message: 'Complete operator installation first' });
+            }
+
+            if (
+              !isFirstUser &&
+              config.emailDomainRestriction.enabled &&
+              !isAllowedEmailDomain(user.email)
+            ) {
+              throw new APIError('BAD_REQUEST', {
+                message:
+                  'Please use an email from a supported provider (Gmail, Hotmail, Outlook, Yahoo, or iCloud).',
+              });
+            }
+
+            const username = (user as { username?: string }).username;
+            if (username) {
+              const validation = isValidUsername(username);
+              if (!validation.valid) {
+                throw new APIError('BAD_REQUEST', {
+                  message: validation.error,
+                });
+              }
+            }
+
+            return { data: user };
+          },
+        },
+      },
+    },
+  });
+}
+
+async function requireSessionRedis() {
+  const redis = await getRedisSession();
+  if (!redis) throw new Error('Session store unavailable');
+  return redis;
+}
 
 export const getAuth = () => {
   if (!authInstance) {

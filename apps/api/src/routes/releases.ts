@@ -307,7 +307,7 @@ app.post("/api/repositories/:owner/:name/releases/:id/assets", requireAuth, asyn
       releaseId: id,
       name: rawName,
       contentType,
-      size: BigInt(file.size),
+      size: file.size,
       storageKey,
       uploaderId: user.id,
       createdAt: new Date(),

@@ -25,20 +25,7 @@ function providerToken(c: { req: { header: (n: string) => string | undefined; qu
 
 app.post("/api/migrations", requireAuth, zValidator("json", migrationCreateBodySchema), async (c) => {
   const user = c.get("user")!;
-  const body = getValidated<{
-    source: string;
-    sourceUrl?: string;
-    sourceBaseUrl?: string;
-    sourceOwner?: string;
-    sourceRepo?: string;
-    options?: Record<string, unknown>;
-    credentials?: {
-      authToken?: string;
-      authType?: string;
-      sshKey?: string;
-      sshKeyPassphrase?: string;
-    };
-  }>(c, "json");
+  const body = getValidated<typeof migrationCreateBodySchema._output>(c, "json");
   const {
     source,
     sourceUrl,

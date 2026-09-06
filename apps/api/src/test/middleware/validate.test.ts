@@ -63,6 +63,17 @@ describe('request validation schemas', () => {
     ).toBe(false);
   });
 
+  it('rejects unsupported migration providers, credential types and non-boolean options', () => {
+    for (const body of [
+      { source: 'unknown' },
+      { source: 'github', credentials: { authType: 'unknown' } },
+      { source: 'github', options: { mirror: 'false' } },
+    ]) {
+      expect(migrationCreateBodySchema.safeParse(body).success).toBe(false);
+    }
+    expect(migrationCreateBodySchema.safeParse({ source: 'url', options: { mirror: false } }).success).toBe(true);
+  });
+
   it('formatZodError returns consistent shape', () => {
     const schema = z.object({ a: z.string() }).strict();
     const parsed = schema.safeParse({});

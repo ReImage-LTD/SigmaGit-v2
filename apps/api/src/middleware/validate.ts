@@ -181,16 +181,22 @@ export const webhookPatchBodySchema = z
 
 export const migrationCreateBodySchema = z
   .object({
-    source: z.string().min(1).max(50),
+    source: z.enum(["github", "gitlab", "bitbucket", "gitea", "url"]),
     sourceUrl: z.string().max(2048).optional(),
     sourceBaseUrl: z.string().max(2048).optional(),
     sourceOwner: z.string().max(200).optional(),
     sourceRepo: z.string().max(200).optional(),
-    options: z.record(z.string(), z.unknown()).optional(),
+    options: z.object({
+      importIssues: z.boolean().optional(),
+      importPRs: z.boolean().optional(),
+      importWiki: z.boolean().optional(),
+      importLabels: z.boolean().optional(),
+      mirror: z.boolean().optional(),
+    }).strict().optional(),
     credentials: z
       .object({
         authToken: z.string().max(8192).optional(),
-        authType: z.string().max(50).optional(),
+        authType: z.enum(["password", "ssh_key", "token"]).optional(),
         sshKey: z.string().max(65536).optional(),
         sshKeyPassphrase: z.string().max(1024).optional(),
       })
