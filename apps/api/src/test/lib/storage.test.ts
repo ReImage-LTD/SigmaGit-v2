@@ -33,3 +33,24 @@ test('copy rejects overlapping prefixes before sending requests', async () => {
   await expect(backend().copyPrefix('repos/u/repo', 'repos/u/repo/copy')).rejects.toThrow('Overlapping');
   expect(send).not.toHaveBeenCalled();
 });
+
+test('adaptive retries never skip failures or repeat successful work', async () => {
+  const { runAdaptiveBatch } = await import('../../storage');
+  const attempts = new Map<number, number>();
+  await runAdaptiveBatch([1, 2, 3], 3, 1, 3, async item => {
+    const count = (attempts.get(item) ?? 0) + 1;
+    attempts.set(item, count);
+    if (item === 2 && count < 3) throw Object.assign(new Error('throttled'), {name: 'SlowDown'});
+  });
+  expect([...attempts]).toEqual([[1, 1], [2, 3], [3, 1]]);
+});
+
+test('permanent throttling rejects after a bounded number of retries', async () => {
+  const { runAdaptiveBatch } = await import('../../storage');
+  let attempts = 0;
+  await expect(runAdaptiveBatch([1], 1, 1, 1, async () => {
+    attempts++;
+    throw Object.assign(new Error('throttled'), {name: 'SlowDown'});
+  })).rejects.toThrow('throttled');
+  expect(attempts).toBe(5);
+});

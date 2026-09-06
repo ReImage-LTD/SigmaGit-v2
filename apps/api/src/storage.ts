@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   S3Client,
   GetObjectCommand,
@@ -22,37 +23,37 @@ function isThrottleLikeError(error: unknown): boolean {
   );
 }
 
-async function runAdaptiveBatch<T>(
+export async function runAdaptiveBatch<T>(
   items: T[],
   initialConcurrency: number,
   minConcurrency: number,
   maxConcurrency: number,
   task: (item: T) => Promise<void>,
 ): Promise<void> {
-  let index = 0;
-  let concurrency = Math.max(minConcurrency, Math.min(maxConcurrency, initialConcurrency));
-
-  while (index < items.length) {
-    const batchItems = items.slice(index, index + concurrency);
-    const results = await Promise.allSettled(batchItems.map((item) => task(item)));
-    index += batchItems.length;
-
-    const rejected = results.filter((result) => result.status === 'rejected');
-    if (rejected.length > 0) {
-      const hasThrottle = rejected.some((result) => isThrottleLikeError(result.reason));
-      if (hasThrottle) {
-        concurrency = Math.max(minConcurrency, Math.floor(concurrency / 2));
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-      const firstFailure = rejected.find((result) => !isThrottleLikeError(result.reason));
-      if (firstFailure && firstFailure.status === 'rejected') {
-        throw firstFailure.reason;
-      }
-      continue;
+  const maximum = Math.max(1, Math.min(64, maxConcurrency));
+  const minimum = Math.max(1, Math.min(maximum, minConcurrency));
+  let concurrency = Math.max(minimum, Math.min(maximum, initialConcurrency));
+  const pending = items.map(item => ({ item, attempts: 0 }));
+  while (pending.length) {
+    requestSignal()?.throwIfAborted();
+    const batch = pending.splice(0, concurrency);
+    const results = await Promise.allSettled(batch.map(({ item }) => task(item)));
+    let retryAttempt = 0;
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.status === 'fulfilled') continue;
+      const entry = batch[i];
+      if (!isThrottleLikeError(result.reason) || entry.attempts >= 4) throw result.reason;
+      entry.attempts++;
+      retryAttempt = Math.max(retryAttempt, entry.attempts);
+      pending.push(entry);
     }
-
-    if (concurrency < maxConcurrency) {
-      concurrency = Math.min(maxConcurrency, concurrency + 1);
+    if (retryAttempt) {
+      concurrency = Math.max(minimum, Math.floor(concurrency / 2));
+      await delay(25 * 2 ** (retryAttempt - 1) + Math.random() * 25, undefined,
+        { signal: requestSignal() });
+    } else {
+      concurrency = Math.min(maximum, concurrency + 1);
     }
   }
 }
