@@ -1,227 +1,24 @@
-import { Hono } from "hono";
-import { db, users, repositories, issues, pullRequests } from "@sigmagit/db";
-import { eq, and, or, ilike, desc, sql } from "drizzle-orm";
-import { type AuthVariables } from "../middleware/auth";
-import { parseLimit, parseOffset } from "../lib/validation";
-import { filterAccessibleRepos, type Repository } from "../lib/access";
+import { Hono } from 'hono';
+import { db } from '@sigmagit/db';
+import type { AuthVariables } from '../middleware/auth';
+import { parseLimit, parseOffset } from '../lib/validation';
+import { buildSearchQuery, SEARCH_TYPES } from '../lib/search-query';
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
-type SearchResultType = "repository" | "issue" | "pull_request" | "user";
-
-type SearchResult = {
-  type: SearchResultType;
-  id: string;
-  title: string;
-  description?: string | null;
-  url: string;
-  owner?: { username: string; avatarUrl: string | null };
-  repository?: { name: string; owner: string };
-  state?: string;
-  number?: number;
-  createdAt: string;
-};
-
-function toRepoAccessInfo(row: {
-  repoId: string;
-  repoOwnerId: string;
-  organizationId: string | null;
-  repoVisibility: string;
-}): Repository {
-  return {
-    id: row.repoId,
-    ownerId: row.repoOwnerId,
-    organizationId: row.organizationId,
-    visibility: row.repoVisibility,
-  };
-}
-
-app.get("/api/search", async (c) => {
-  const query = c.req.query("q")?.trim();
-  const type = c.req.query("type") || "all";
-  const limit = parseLimit(c.req.query("limit"), 20, 50);
-  const offset = parseOffset(c.req.query("offset"), 0);
-  const currentUser = c.get("user");
-
+app.get('/api/search', async (c) => {
+  const query = c.req.query('q')?.trim();
+  const type = c.req.query('type') || 'all';
+  const limit = parseLimit(c.req.query('limit'), 20, 50);
+  const offset = parseOffset(c.req.query('offset'), 0);
   if (!query || query.length < 2) {
     return c.json({ results: [], hasMore: false, total: 0 });
   }
-
-  const searchPattern = `%${query}%`;
-  const results: SearchResult[] = [];
-
-  if (type === "all" || type === "repositories" || type === "repos") {
-    const repoResults = await db
-      .select({
-        id: repositories.id,
-        name: repositories.name,
-        description: repositories.description,
-        visibility: repositories.visibility,
-        ownerId: repositories.ownerId,
-        organizationId: repositories.organizationId,
-        ownerUsername: users.username,
-        ownerAvatar: users.avatarUrl,
-        createdAt: repositories.createdAt,
-      })
-      .from(repositories)
-      .innerJoin(users, eq(users.id, repositories.ownerId))
-      .where(sql`${repositories.searchVector} @@ websearch_to_tsquery('english', ${query})`)
-      .orderBy(desc(repositories.createdAt))
-      .limit(type === "all" ? 20 : limit + offset)
-      .offset(0);
-
-    const accessibleRepos = await filterAccessibleRepos(repoResults, currentUser);
-    const pagedRepos = accessibleRepos.slice(type === "all" ? 0 : offset, type === "all" ? 5 : offset + limit);
-
-    for (const repo of pagedRepos) {
-      results.push({
-        type: "repository",
-        id: repo.id,
-        title: repo.name,
-        description: repo.description,
-        url: `/${repo.ownerUsername}/${repo.name}`,
-        owner: { username: repo.ownerUsername, avatarUrl: repo.ownerAvatar },
-        createdAt: repo.createdAt.toISOString(),
-      });
-    }
+  if (!SEARCH_TYPES.includes(type) || query.length > 500 || !Number.isSafeInteger(offset) || offset > 10000) {
+    return c.json({ error: 'Invalid search type, query length or offset (maximum 10000)' }, 400);
   }
-
-  if (type === "all" || type === "issues") {
-    const issueResults = await db
-      .select({
-        id: issues.id,
-        number: issues.number,
-        title: issues.title,
-        body: sql<string | null>`left(${issues.body}, 200)`,
-        state: issues.state,
-        repoId: repositories.id,
-        repoName: repositories.name,
-        repoVisibility: repositories.visibility,
-        repoOwnerId: repositories.ownerId,
-        organizationId: repositories.organizationId,
-        ownerUsername: users.username,
-        createdAt: issues.createdAt,
-      })
-      .from(issues)
-      .innerJoin(repositories, eq(repositories.id, issues.repositoryId))
-      .innerJoin(users, eq(users.id, repositories.ownerId))
-      .where(sql`${issues.searchVector} @@ websearch_to_tsquery('english', ${query})`)
-      .orderBy(desc(issues.createdAt))
-      .limit(type === "all" ? 20 : limit + offset)
-      .offset(0);
-
-    const accessibleIssues = (
-      await filterAccessibleRepos(issueResults.map(toRepoAccessInfo), currentUser)
-    ).reduce((set, repo) => set.add(repo.id), new Set<string>());
-    const filteredIssues = issueResults.filter((issue) => accessibleIssues.has(issue.repoId));
-
-    const pagedIssues = filteredIssues.slice(type === "all" ? 0 : offset, type === "all" ? 5 : offset + limit);
-
-    for (const issue of pagedIssues) {
-      results.push({
-        type: "issue",
-        id: issue.id,
-        title: issue.title,
-        description: issue.body?.slice(0, 200),
-        url: `/${issue.ownerUsername}/${issue.repoName}/issues/${issue.number}`,
-        repository: { name: issue.repoName, owner: issue.ownerUsername },
-        state: issue.state,
-        number: issue.number,
-        createdAt: issue.createdAt.toISOString(),
-      });
-    }
-  }
-
-  if (type === "all" || type === "pulls" || type === "prs") {
-    const prResults = await db
-      .select({
-        id: pullRequests.id,
-        number: pullRequests.number,
-        title: pullRequests.title,
-        body: sql<string | null>`left(${pullRequests.body}, 200)`,
-        state: pullRequests.state,
-        repoId: repositories.id,
-        repoName: repositories.name,
-        repoVisibility: repositories.visibility,
-        repoOwnerId: repositories.ownerId,
-        organizationId: repositories.organizationId,
-        ownerUsername: users.username,
-        createdAt: pullRequests.createdAt,
-      })
-      .from(pullRequests)
-      .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))
-      .innerJoin(users, eq(users.id, repositories.ownerId))
-      .where(sql`${pullRequests.searchVector} @@ websearch_to_tsquery('english', ${query})`)
-      .orderBy(desc(pullRequests.createdAt))
-      .limit(type === "all" ? 20 : limit + offset)
-      .offset(0);
-
-    const accessiblePrIds = (
-      await filterAccessibleRepos(prResults.map(toRepoAccessInfo), currentUser)
-    ).reduce((set, repo) => set.add(repo.id), new Set<string>());
-    const filteredPrs = prResults.filter((pr) => accessiblePrIds.has(pr.repoId));
-
-    const pagedPrs = filteredPrs.slice(type === "all" ? 0 : offset, type === "all" ? 5 : offset + limit);
-
-    for (const pr of pagedPrs) {
-      results.push({
-        type: "pull_request",
-        id: pr.id,
-        title: pr.title,
-        description: pr.body?.slice(0, 200),
-        url: `/${pr.ownerUsername}/${pr.repoName}/pulls/${pr.number}`,
-        repository: { name: pr.repoName, owner: pr.ownerUsername },
-        state: pr.state,
-        number: pr.number,
-        createdAt: pr.createdAt.toISOString(),
-      });
-    }
-  }
-
-  if (type === "all" || type === "users") {
-    const userResults = await db
-      .select({
-        id: users.id,
-        username: users.username,
-        name: users.name,
-        bio: users.bio,
-        avatarUrl: users.avatarUrl,
-        createdAt: users.createdAt,
-      })
-      .from(users)
-      .where(
-        or(
-          ilike(users.username, searchPattern),
-          ilike(users.name, searchPattern),
-          ilike(users.bio, searchPattern)
-        )
-      )
-      .orderBy(desc(users.createdAt))
-      .limit(type === "all" ? 5 : limit)
-      .offset(type === "all" ? 0 : offset);
-
-    for (const user of userResults) {
-      results.push({
-        type: "user",
-        id: user.id,
-        title: user.username,
-        description: user.bio || user.name,
-        url: `/${user.username}`,
-        owner: { username: user.username, avatarUrl: user.avatarUrl },
-        createdAt: user.createdAt.toISOString(),
-      });
-    }
-  }
-
-  if (type === "all") {
-    results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }
-
-  return c.json({
-    results: results.slice(0, limit),
-    hasMore: results.length > limit,
-    query,
-  });
+  const rows = await db.execute(buildSearchQuery(query, type, limit, offset, c.get('user')));
+  return c.json({ results: rows.slice(0, limit), hasMore: rows.length > limit, query });
 });
 
 export default app;
