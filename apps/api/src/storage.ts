@@ -89,7 +89,7 @@ export interface StorageBackend {
   hasPrefix(prefix: string): Promise<boolean>;
   deletePrefix(prefix: string): Promise<void>;
   copyPrefix(sourcePrefix: string, targetPrefix: string): Promise<void>;
-  getStream(key: string): Promise<ReadableStream | null>;
+  getStream(key: string, signal?: AbortSignal): Promise<ReadableStream | null>;
 }
 
 export class S3StorageBackend implements StorageBackend {
@@ -385,25 +385,27 @@ export class S3StorageBackend implements StorageBackend {
     } while (continuationToken);
   }
 
-  async getStream(key: string): Promise<ReadableStream | null> {
+  async getStream(key: string, signal?: AbortSignal): Promise<ReadableStream | null> {
     if (!this.client) {
       return null;
     }
 
+    const effectiveSignal = requestSignal(signal);
     try {
       const response = await this.client.send(
         new GetObjectCommand({
           Bucket: this.bucket,
           Key: key,
         }),
-        { abortSignal: requestSignal() },
+        { abortSignal: effectiveSignal },
       );
 
       if (!response.Body) {
         return null;
       }
 
-      return response.Body.transformToWebStream();
+      return boundedStream(response.Body.transformToWebStream(), Infinity,
+        () => new Error('Storage response too large'), effectiveSignal);
     } catch (error: any) {
       if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
         return null;
@@ -638,40 +640,14 @@ class LocalStorageBackend implements StorageBackend {
     await flushBatch();
   }
 
-  async getStream(key: string): Promise<ReadableStream | null> {
-    try {
-      const fullPath = this.getFullPath(key);
-
-      return new ReadableStream({
-        async start(controller) {
-          try {
-            const fileHandle = await Bun.file(fullPath);
-            const stream = fileHandle.stream();
-            const reader = stream.getReader();
-
-            try {
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                controller.enqueue(value);
-              }
-            } finally {
-              reader.cancel();
-            }
-
-            controller.close();
-          } catch (error) {
-            controller.error(error);
-          }
-        },
-      });
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
-        return null;
-      }
-      throw error;
-    }
+  async getStream(key: string, signal?: AbortSignal): Promise<ReadableStream | null> {
+    const fullPath = this.getFullPath(key);
+    const file = Bun.file(fullPath);
+    if (!(await file.exists())) return null;
+    return boundedStream(file.stream(), Infinity, () => new Error('Storage response too large'),
+      requestSignal(signal));
   }
+
 }
 
 export function getStorageBackend(): StorageBackend {
@@ -741,9 +717,9 @@ export const copyPrefix = async (sourcePrefix: string, targetPrefix: string): Pr
   return storage.copyPrefix(sourcePrefix, targetPrefix);
 };
 
-export const getObjectStream = async (key: string): Promise<ReadableStream | null> => {
+export const getObjectStream = async (key: string, signal?: AbortSignal): Promise<ReadableStream | null> => {
   const storage = getStorageBackend();
-  return storage.getStream(key);
+  return storage.getStream(key, signal);
 };
 
 export const listDirectory = (prefix: string): Promise<string[]> => getStorageBackend().listDirectory(prefix);

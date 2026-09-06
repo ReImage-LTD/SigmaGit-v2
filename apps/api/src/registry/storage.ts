@@ -1,3 +1,5 @@
+import { concatenateStreams } from '../lib/concatenate-streams';
+import { requestSignal } from '../lib/request-context';
 /**
  * OCI Distribution (Docker Registry) v2 storage layout.
  * Uses existing S3/local storage with prefix registry/.
@@ -352,22 +354,6 @@ export async function deleteUpload(uuid: string): Promise<void> {
   await deletePrefix(getUploadPrefix(uuid));
 }
 
-async function pipeStreamToController(
-  stream: ReadableStream<Uint8Array>,
-  controller: ReadableStreamDefaultController<Uint8Array>,
-): Promise<void> {
-  const reader = stream.getReader();
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      controller.enqueue(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
 export async function streamBlob(
   owner: string,
   imageName: string,
@@ -379,21 +365,8 @@ export async function streamBlob(
     return getObjectStream(key);
   }
 
-  return new ReadableStream({
-    async start(controller) {
-      try {
-        for (const key of chunked.chunks) {
-          assertSafeRegistryKey(key);
-          const chunkStream = await getObjectStream(key);
-          if (!chunkStream) {
-            throw new Error('Missing blob chunk');
-          }
-          await pipeStreamToController(chunkStream, controller);
-        }
-        controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
-    },
-  });
+  return concatenateStreams(chunked.chunks, async (key, signal) => {
+    assertSafeRegistryKey(key);
+    return getObjectStream(key, signal);
+  }, requestSignal());
 }
