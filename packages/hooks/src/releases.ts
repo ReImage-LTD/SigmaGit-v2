@@ -44,9 +44,9 @@ export function useCreateRelease() {
   return useMutation({
     mutationFn: (data: { owner: string; repo: string; tagName: string; name: string; body: unknown; isDraft?: boolean; isPrerelease?: boolean; targetCommitish?: string }) =>
       api.releases?.create?.(data.owner, data.repo, data.tagName, data.name, data.body, data.isDraft, data.isPrerelease, data.targetCommitish) ?? Promise.resolve(undefined),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["releases", owner, repo] });
-      queryClient.invalidateQueries({ queryKey: ["repositories", data.owner, data.repo] });
+    onSuccess: (_, data) => {
+      queryClient.invalidateQueries({ queryKey: ["releases", data.owner, data.repo] });
+      queryClient.invalidateQueries({ queryKey: ["repository", data.owner, data.repo] });
     },
   });
 }
@@ -59,9 +59,9 @@ export function useUpdateRelease() {
     mutationFn: (data: { owner: string; repo: string; id: string; name?: string; body?: string; state?: "open" | "closed"; isDraft?: boolean }) =>
       api.releases?.update?.(data.owner, data.repo, data.id, { name: data.name, body: data.body, isDraft: data.isDraft }) ??
       Promise.resolve(undefined),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["release", owner, repo, data.id] });
-      queryClient.invalidateQueries({ queryKey: ["releases", owner, repo] });
+    onSuccess: (_, data) => {
+      queryClient.invalidateQueries({ queryKey: ["release", data.owner, data.repo, data.id] });
+      queryClient.invalidateQueries({ queryKey: ["releases", data.owner, data.repo] });
     },
   });
 }
@@ -73,9 +73,9 @@ export function useDeleteRelease() {
   return useMutation({
     mutationFn: (data: { owner: string; repo: string; id: string }) =>
       api.releases?.delete?.(data.owner, data.repo, data.id) ?? Promise.resolve({ success: false }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["releases", owner, repo] });
-      queryClient.invalidateQueries({ queryKey: ["repositories", data.owner, data.repo] });
+    onSuccess: (_, data) => {
+      queryClient.invalidateQueries({ queryKey: ["releases", data.owner, data.repo] });
+      queryClient.invalidateQueries({ queryKey: ["repository", data.owner, data.repo] });
     },
   });
 }
@@ -87,9 +87,10 @@ export function usePublishRelease() {
   return useMutation({
     mutationFn: (data: { owner: string; repo: string; id: string }) =>
       api.releases?.publish?.(data.owner, data.repo, data.id) ?? Promise.resolve({ success: false }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["releases", owner, repo, data.id] });
-      queryClient.invalidateQueries({ queryKey: ["repositories", data.owner, data.repo] });
+    onSuccess: (_, data) => {
+      queryClient.invalidateQueries({ queryKey: ["release", data.owner, data.repo, data.id] });
+      queryClient.invalidateQueries({ queryKey: ["releases", data.owner, data.repo] });
+      queryClient.invalidateQueries({ queryKey: ["repository", data.owner, data.repo] });
     },
   });
 }

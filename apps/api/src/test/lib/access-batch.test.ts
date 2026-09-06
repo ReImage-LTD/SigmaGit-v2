@@ -34,7 +34,7 @@ describe('consistent repository permissions', () => {
         where: () => Promise.resolve([]),
       };
       return builder as unknown as ReturnType<typeof db.select>;
-    }) as typeof db.select);
+    }) as unknown as typeof db.select);
     expect(
       await filterAccessibleRepos([{ ...repo, visibility: 'public' }], { id: 'user' }, true),
     ).toEqual([]);
@@ -70,7 +70,7 @@ describe('consistent repository permissions', () => {
         where: () => Promise.resolve(result),
       };
       return builder as unknown as ReturnType<typeof db.select>;
-    }) as typeof db.select);
+    }) as unknown as typeof db.select);
     expect(await filterAccessibleRepos([repo], { id: 'admin', role: 'admin' }, true)).toEqual([]);
   });
 });

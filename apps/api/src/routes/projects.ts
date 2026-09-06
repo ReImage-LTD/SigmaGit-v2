@@ -11,7 +11,7 @@ import {
 import { requireAuth, type AuthVariables } from '../middleware/auth';
 import { resolveRepositoryWithAccess } from '../lib/repo-helpers';
 import { eq, sql, and, asc, inArray } from 'drizzle-orm';
-import { canManageRepository } from '../lib/access';
+import { canAccessRepository, canManageRepository } from '../lib/access';
 import { Hono } from 'hono';
 
 const app = new Hono<{ Variables: AuthVariables }>();
