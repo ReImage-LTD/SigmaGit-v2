@@ -155,6 +155,22 @@ describe('evaluateRepoAccessFromFacts (table-driven)', () => {
       expected: true,
     },
     {
+      name: 'orphaned team membership cannot read an organization repository',
+      repo: orgPrivate,
+      user: { id: 'u1' },
+      facts: { ...emptyFacts, teamPermission: 'admin' },
+      write: false,
+      expected: false,
+    },
+    {
+      name: 'organization members retain explicit team write access',
+      repo: orgPrivate,
+      user: { id: 'u1' },
+      facts: { ...emptyFacts, orgRole: 'member', teamPermission: 'write' },
+      write: true,
+      expected: true,
+    },
+    {
       name: 'team read cannot write',
       repo: privateRepo,
       user: { id: 'u1' },

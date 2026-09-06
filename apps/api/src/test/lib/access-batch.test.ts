@@ -48,7 +48,7 @@ describe('consistent repository permissions', () => {
         { id: 'user' },
         {
           collaboratorPermission: 'read',
-          orgRole: null,
+          orgRole: 'member',
           teamPermission: 'write',
         },
         true,

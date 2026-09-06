@@ -1,6 +1,7 @@
+import { changeOrganizationMember, acceptOrganizationInvitation } from '../lib/org-membership';
 import { Hono } from "hono";
 import { db, organizations, organizationMembers, teams, teamMembers, teamRepositories, organizationInvitations, users, repositories } from "@sigmagit/db";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { requireAuth, type AuthVariables } from "../middleware/auth";
 import { filterAccessibleRepos } from "../lib/access";
 import { parseLimit, parseOffset } from "../lib/validation";
@@ -230,32 +231,13 @@ app.put("/api/organizations/:org/members/:username", requireAuth, async (c) => {
     return c.json({ error: "Organization not found" }, 404);
   }
 
-  const [requester] = await db
-    .select()
-    .from(organizationMembers)
-    .where(eq(organizationMembers.organizationId, org.id));
-
-  if (!requester || (requester.userId !== user.id && requester.role !== "owner")) {
-    return c.json({ error: "Forbidden" }, 403);
-  }
-
   const [targetUser] = await db.select().from(users).where(eq(users.username, username));
   if (!targetUser) {
     return c.json({ error: "User not found" }, 404);
   }
 
-  await db
-    .insert(organizationMembers)
-    .values({
-      organizationId: org.id,
-      userId: targetUser.id,
-      role,
-      createdAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [organizationMembers.organizationId, organizationMembers.userId],
-      set: { role },
-    });
+  const failure = await changeOrganizationMember(org.id, user.id, targetUser.id, role);
+  if (failure) return c.json({ error: failure.error }, failure.status);
 
   await appCache.invalidateUserAccess(targetUser.id);
   await logAuditEvent(
@@ -292,33 +274,13 @@ app.delete("/api/organizations/:org/members/:username", requireAuth, async (c) =
     return c.json({ error: "Organization not found" }, 404);
   }
 
-  const [requester] = await db
-    .select()
-    .from(organizationMembers)
-    .where(
-      and(
-        eq(organizationMembers.organizationId, org.id),
-        eq(organizationMembers.userId, user.id)
-      )
-    );
-
-  if (!requester || (requester.role !== "owner" && requester.userId !== user.id)) {
-    return c.json({ error: "Forbidden" }, 403);
-  }
-
   const [targetUser] = await db.select().from(users).where(eq(users.username, username));
   if (!targetUser) {
     return c.json({ error: "User not found" }, 404);
   }
 
-  await db
-    .delete(organizationMembers)
-    .where(
-      and(
-        eq(organizationMembers.organizationId, org.id),
-        eq(organizationMembers.userId, targetUser.id)
-      )
-    );
+  const failure = await changeOrganizationMember(org.id, user.id, targetUser.id);
+  if (failure) return c.json({ error: failure.error }, failure.status);
 
   await appCache.invalidateUserAccess(targetUser.id);
   await logAuditEvent(
@@ -870,11 +832,19 @@ app.get("/api/organizations/:org/repositories", async (c) => {
   return c.json({ repositories: reposWithOwner, hasMore });
 });
 
+const invitationSchema = z.object({
+  email: z.string().trim().email().max(254).optional(),
+  userId: z.string().min(1).max(200).optional(),
+  role: z.enum(['owner', 'admin', 'member']).default('member'),
+  teamIds: z.array(z.string().uuid()).max(100).default([]),
+}).strict().refine(value => Boolean(value.email || value.userId), { message: 'An invitation recipient is required' });
+
 app.post("/api/organizations/:org/invitations", requireAuth, async (c) => {
   const user = c.get("user")!;
   const orgName = c.req.param("org");
-  const body = await c.req.json();
-  const { email, userId, role, teamIds } = body;
+  const parsed = invitationSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json(formatZodError(parsed.error), 400);
+  const { email, userId, role, teamIds } = parsed.data;
 
   const [org] = await db
     .select()
@@ -900,6 +870,15 @@ app.post("/api/organizations/:org/invitations", requireAuth, async (c) => {
   }
 
   const token = randomUUID();
+  if (role === 'owner' && member.role !== 'owner') return c.json({ error: 'Only owners can invite owners' }, 403);
+  if (userId && !(await db.query.users.findFirst({ where: eq(users.id, userId), columns: { id: true } }))) {
+    return c.json({ error: 'Invitation recipient not found' }, 400);
+  }
+  const uniqueTeamIds = [...new Set(teamIds)];
+  if (uniqueTeamIds.length) {
+    const matching = await db.select({ id: teams.id }).from(teams).where(and(eq(teams.organizationId, org.id), inArray(teams.id, uniqueTeamIds)));
+    if (matching.length !== uniqueTeamIds.length) return c.json({ error: 'Invalid invitation teams' }, 400);
+  }
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
   const [invitation] = await db
@@ -910,7 +889,7 @@ app.post("/api/organizations/:org/invitations", requireAuth, async (c) => {
       userId,
       invitedById: user.id,
       role: role || "member",
-      teamIds: teamIds || [],
+      teamIds: uniqueTeamIds,
       token,
       expiresAt,
       createdAt: new Date(),
@@ -1018,53 +997,9 @@ app.post("/api/invitations/:token/accept", requireAuth, async (c) => {
   const user = c.get("user")!;
   const token = c.req.param("token");
 
-  const [invitation] = await db
-    .select()
-    .from(organizationInvitations)
-    .where(eq(organizationInvitations.token, token));
-
-  if (!invitation) {
-    return c.json({ error: "Invitation not found" }, 404);
-  }
-
-  if (new Date() > invitation.expiresAt) {
-    return c.json({ error: "Invitation expired" }, 400);
-  }
-
-  if (invitation.acceptedAt) {
-    return c.json({ error: "Invitation already accepted" }, 400);
-  }
-
-  await db
-    .insert(organizationMembers)
-    .values({
-      organizationId: invitation.organizationId,
-      userId: user.id,
-      role: invitation.role,
-      createdAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [organizationMembers.organizationId, organizationMembers.userId],
-      set: { role: invitation.role },
-    });
-
-  await db
-    .update(organizationInvitations)
-    .set({ acceptedAt: new Date() })
-    .where(eq(organizationInvitations.id, invitation.id));
-
-  if (invitation.teamIds) {
-    for (const teamId of invitation.teamIds) {
-      await db
-        .insert(teamMembers)
-        .values({
-          teamId,
-          userId: user.id,
-          createdAt: new Date(),
-        })
-        .onConflictDoNothing();
-    }
-  }
+  const failure = await acceptOrganizationInvitation(token, user.id);
+  if (failure) return c.json({ error: failure.error }, failure.status);
+  await appCache.invalidateUserAccess(user.id);
 
   return c.json({ success: true });
 });

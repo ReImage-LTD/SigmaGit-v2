@@ -124,7 +124,9 @@ export function evaluateRepoAccessFromFacts(
   return (
     (facts.collaboratorPermission != null &&
       satisfiesAccess(facts.collaboratorPermission, writeRequired)) ||
-    (facts.teamPermission != null && satisfiesAccess(facts.teamPermission, writeRequired))
+    (facts.teamPermission != null &&
+      (!repo.organizationId || facts.orgRole != null) &&
+      satisfiesAccess(facts.teamPermission, writeRequired))
   );
 }
 

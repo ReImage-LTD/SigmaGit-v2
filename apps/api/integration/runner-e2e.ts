@@ -161,6 +161,8 @@ jobs:
     'content-type': 'application/json',
   };
   const { checkReleaseAuthorization } = await import('./release-authorization');
+  const { checkOrganizationAuthorization } = await import('./organization-authorization');
+  await checkOrganizationAuthorization(baseURL);
   await checkReleaseAuthorization({
     baseURL,
     ownerId,
