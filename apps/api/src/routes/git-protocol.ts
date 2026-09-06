@@ -1,6 +1,7 @@
+import { applyRefUpdates, type GitRefUpdate } from '../lib/git-ref-updates';
 import { Hono } from "hono";
 import { db, users, repositoryCollaborators } from "@sigmagit/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { type AuthUser, type AuthVariables } from "../middleware/auth";
 import { getRefsAdvertisement, repoCache } from "../git";
 import { resolveRepositoryBySlug, createRepoGitStore } from "../lib/repo-helpers";
@@ -1013,31 +1014,15 @@ app.post("/:owner/:name/git-receive-pack", async (c) => {
       }
     }
 
-    if (packStart === -1) {
-      const unpackOk = "unpack ok\n";
-      const unpackOkLen = unpackOk.length + 4;
-      const response = Buffer.concat([
-        Buffer.from(unpackOkLen.toString(16).padStart(4, "0") + unpackOk, "ascii"),
-        Buffer.from("0000", "ascii"),
-      ]);
-      return new Response(response, {
-        status: 200,
-        headers: {
-          "Content-Type": "application/x-git-receive-pack-result",
-          "Cache-Control": "no-cache",
-        },
-      });
-    }
+    const commandSection = packStart === -1 ? requestData : requestData.subarray(0, packStart);
+    const packData = packStart === -1 ? null : requestData.subarray(packStart);
 
-    const commandSection = requestData.slice(0, packStart);
-    const packData = requestData.slice(packStart);
-
-    console.log(`[API] receive-pack: command section ${commandSection.length} bytes, pack data ${packData.length} bytes`);
+    console.log(`[API] receive-pack: command section ${commandSection.length} bytes, pack data ${packData?.length ?? 0} bytes`);
 
     const commands = parsePktLines(commandSection);
     console.log(`[API] receive-pack: parsed ${commands.length} commands`);
 
-    const updates: Array<{ oldOid: string; newOid: string; ref: string }> = [];
+    const updates: GitRefUpdate[] = [];
 
     for (const line of commands) {
       const parts = line.trim().split(/\s+/);
@@ -1066,25 +1051,26 @@ app.post("/:owner/:name/git-receive-pack", async (c) => {
     };
 
     const basePath = `repos/${repo.storageOwnerId}/${repo.name}`;
-    console.log(`[API] receive-pack: unpacking pack file (${packData.length} bytes)`);
-    const unpackResult = await unpackPackFile(packData, storeObject, basePath);
-    if (!unpackResult.success) {
-      console.error(`[API] receive-pack: unpack failed: ${unpackResult.error}`);
-      throw new Error(unpackResult.error || "Failed to unpack");
-    }
-    console.log(`[API] receive-pack: unpacked ${unpackResult.objectCount} objects`);
-
-    for (const update of updates) {
-      const refPath = update.ref.startsWith("refs/") ? update.ref : `refs/heads/${update.ref}`;
-      const refKey = `repos/${repo.storageOwnerId}/${repo.name}/${refPath}`;
-
-      if (update.newOid === "0".repeat(40)) {
-        await deleteObject(refKey).catch(() => {});
-      } else {
-        await putObject(refKey, Buffer.from(update.newOid + "\n"));
-
+    if (packData) {
+      console.log(`[API] receive-pack: unpacking pack file (${packData.length} bytes)`);
+      const unpackResult = await unpackPackFile(packData, storeObject, basePath);
+      if (!unpackResult.success) {
+        console.error(`[API] receive-pack: unpack failed: ${unpackResult.error}`);
+        throw new Error(unpackResult.error || "Failed to unpack");
       }
+      console.log(`[API] receive-pack: unpacked ${unpackResult.objectCount} objects`);
     }
+
+    // PostgreSQL serializes pushes across API instances, including local and S3 storage.
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL lock_timeout = '10s'`);
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${'git-push:' + repo.id}, 0))`);
+      await applyRefUpdates(updates, {
+        read: async (ref) => (await getObject(basePath + '/' + ref))?.toString('utf8') ?? null,
+        write: async (ref, oid) => putObject(basePath + '/' + ref, Buffer.from(oid + '\n')),
+        remove: async (ref) => deleteObject(basePath + '/' + ref),
+      });
+    });
 
     if (updates.length > 0) {
       // HEAD is set when the repository is created or its default branch changes.
