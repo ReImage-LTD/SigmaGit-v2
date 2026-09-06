@@ -6,10 +6,12 @@
   "main": "./src/index.ts",
   "scripts": {
     "dev": "bun run --watch --env-file ../../.env src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun --minify --packages=external",
+    "build": "bun build src/index.ts src/server.ts src/migrate.ts --outdir dist --target bun --production --packages=external",
     "start": "bun run --env-file ../../.env src/index.ts",
     "test": "bun test src/test",
-    "test:security": "bun test src/test"
+    "test:security": "bun test src/test",
+    "start:production": "bun run dist/server.js",
+    "db:migrate": "bun run src/migrate.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1127.0",

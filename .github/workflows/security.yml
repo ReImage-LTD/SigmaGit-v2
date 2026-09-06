@@ -7,6 +7,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  docker-api:
+    name: Production API Docker smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: docker build -f apps/api/Dockerfile -t sigmagit-api-production-test .
+      - run: bun run apps/api/integration/docker-smoke.ts
+
   runner-integration:
     name: Runner and API integration
     runs-on: ubuntu-latest
@@ -48,6 +60,8 @@ jobs:
         run: bun install --frozen-lockfile
       - name: API unit tests
         run: cd apps/api && bun test src/test
+      - name: API type check
+        run: bun x tsc --noEmit -p apps/api/tsconfig.json
       - name: Web security unit tests
         run: cd apps/web && bun run test
 

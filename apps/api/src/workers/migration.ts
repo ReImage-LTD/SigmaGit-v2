@@ -308,10 +308,21 @@ export async function processMigration(migrationId: string) {
 }
 
 // Background worker - processes pending migrations
+let migrationInterval: ReturnType<typeof setInterval> | undefined;
+let activeMigration: Promise<void> | undefined;
+export async function stopMigrationWorker() {
+  clearInterval(migrationInterval);
+  migrationInterval = undefined;
+  await activeMigration;
+}
+
 export async function startMigrationWorker() {
+  if (migrationInterval) return;
   console.log('[Migration] Starting migration worker...');
 
-  setInterval(async () => {
+  migrationInterval = setInterval(() => {
+    if (activeMigration) return;
+    activeMigration = (async () => {
     try {
       const pendingMigrations = await db
         .select()
@@ -326,5 +337,6 @@ export async function startMigrationWorker() {
     } catch (error) {
       console.error('[Migration] Worker error:', error);
     }
+    })().finally(() => { activeMigration = undefined; });
   }, 10000); // Check every 10 seconds
 }

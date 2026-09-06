@@ -34,7 +34,7 @@ COPY apps/api ./apps/api
 COPY apps/discord-bot ./apps/discord-bot
 
 WORKDIR /app/apps/api
-RUN bun build src/index.ts --outdir dist --target bun --minify --packages=external
+RUN bun build src/index.ts src/server.ts src/migrate.ts --outdir dist --target bun --production --packages=external
 
 WORKDIR /app/apps/web
 RUN bun run build
@@ -43,12 +43,13 @@ FROM oven/bun:1.4.2-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache wget
+RUN apk add --no-cache wget git ca-certificates
 
 COPY --chown=bun:bun --from=builder /app/node_modules ./node_modules
 COPY --chown=bun:bun --from=builder /app/packages ./packages
 COPY --chown=bun:bun --from=builder /app/apps/web/.output ./apps/web/.output
 COPY --chown=bun:bun --from=builder /app/apps/web/package.json ./apps/web/package.json
+COPY --chown=bun:bun --from=builder /app/apps/api/node_modules ./apps/api/node_modules
 COPY --chown=bun:bun --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --chown=bun:bun --from=builder /app/apps/api/package.json ./apps/api/package.json
 COPY --chown=bun:bun --from=builder /app/apps/discord-bot ./apps/discord-bot
@@ -60,6 +61,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
 
 ENV NODE_ENV=production
 ENV PORT=3001
+ENV STORAGE_LOCAL_PATH=/data/repos
 EXPOSE 3000 3001
 
 USER bun

@@ -1,5 +1,6 @@
 import { requireRunnerAuth } from './middleware/runner-auth';
 import { Hono } from "hono";
+import { HTTPException } from 'hono/http-exception';
 import { createMiddleware } from "hono/factory";
 import { config, getAllowedOrigins } from "./config";
 import { initAuth } from "./auth";
@@ -24,6 +25,33 @@ import { sanitizeQueryForLog } from "./lib/log-sanitize";
 import { startMigrationWorker } from "./workers/migration";
 import { startRunnerHealthWorker } from "./workers/runner-health";
 import "./monitoring";
+import { db } from '@sigmagit/db';
+import { sql } from 'drizzle-orm';
+import { createReadinessProbe } from './lib/readiness';
+import { access, constants } from 'node:fs/promises';
+import { HeadBucketCommand } from '@aws-sdk/client-s3';
+import { s3Client, bucket } from './s3';
+import migrationJournal from '../../../packages/db/migrations/meta/_journal.json';
+
+const isReady = createReadinessProbe(async () => {
+  await Promise.all([
+    db.execute(sql`SELECT created_at FROM drizzle.__drizzle_migrations ORDER BY created_at DESC LIMIT 1`)
+      .then((rows) => {
+        if (Number(rows[0]?.created_at) < migrationJournal.entries.at(-1)!.when || !rows.length) {
+          throw new Error('Database migrations are pending');
+        }
+      }),
+    config.storage.type === 'local'
+      ? access(config.storage.localPath, constants.R_OK | constants.W_OK)
+      : s3Client
+        ? s3Client.send(new HeadBucketCommand({ Bucket: bucket }), { abortSignal: AbortSignal.timeout(2500) })
+        : Promise.reject(new Error('Storage unavailable')),
+    config.redisSessionUrl ? getRedisSession().then(async (client) => {
+      if (!client) throw new Error('Session store unavailable');
+      await client.ping();
+    }) : Promise.resolve(),
+  ]);
+});
 
 export { sanitizeQueryForLog };
 
@@ -50,6 +78,14 @@ if (!config.redisSessionUrl && !config.redisCacheUrl) {
 }
 
 const app = new Hono();
+app.onError((error, c) => {
+  if (error instanceof HTTPException && error.status < 500) {
+    return c.json({ error: error.message }, error.status);
+  }
+  // Database errors can include SQL bindings (password hashes and tokens).
+  console.error('[API] Unhandled request error', { name: error.name });
+  return c.json({ error: 'Internal server error' }, 500);
+});
 
 const loggingMiddleware = createMiddleware(async (c, next) => {
   const start = Date.now();
@@ -153,6 +189,15 @@ const guardedFetch = createRequestGuard(
 export default {
   port,
   fetch: async (request: Request, server: ApiServer) => {
+    const path = new URL(request.url).pathname;
+    if ((request.method === 'GET' || request.method === 'HEAD') &&
+        ['/health', '/api/health', '/ready', '/api/ready'].includes(path)) {
+      const ready = path.endsWith('/health') || await isReady();
+      return Response.json({ status: ready ? 'ok' : 'unavailable' }, {
+        status: ready ? 200 : 503,
+        headers: { ...buildSecurityHeaders(config.isProduction), 'Cache-Control': 'no-store' },
+      });
+    }
     if (request.method === "OPTIONS") {
       const origin = request.headers.get("origin");
       const allowedOrigins = getAllowedOrigins();

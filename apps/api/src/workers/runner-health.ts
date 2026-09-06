@@ -5,6 +5,13 @@ import { and, eq, inArray, lt, or } from 'drizzle-orm';
 const OFFLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
 
 let healthInterval: NodeJS.Timeout | null = null;
+let startupTimer: ReturnType<typeof setTimeout> | undefined;
+let activeCheck: Promise<void> | undefined;
+
+function runHealthCheck() {
+  if (!activeCheck) activeCheck = checkRunnerHealth().finally(() => { activeCheck = undefined; });
+  return activeCheck;
+}
 
 export async function checkRunnerHealth() {
   const now = new Date();
@@ -74,15 +81,17 @@ export function startRunnerHealthWorker() {
   if (healthInterval) return;
 
   console.log('[RunnerHealth] Starting runner health worker');
-  healthInterval = setInterval(checkRunnerHealth, 60_000); // every 60s
+  healthInterval = setInterval(runHealthCheck, 60_000); // every 60s
 
   // Run once on startup after a short delay
-  setTimeout(checkRunnerHealth, 5_000);
+  startupTimer = setTimeout(runHealthCheck, 5_000);
 }
 
-export function stopRunnerHealthWorker() {
+export async function stopRunnerHealthWorker() {
+  clearTimeout(startupTimer);
   if (healthInterval) {
     clearInterval(healthInterval);
     healthInterval = null;
   }
+  await activeCheck;
 }

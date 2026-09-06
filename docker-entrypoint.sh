@@ -3,7 +3,7 @@ set -e
 
 # Start API server in background
 echo "Starting API server on port ${PORT:-3001}..."
-bun /app/apps/api/dist/index.js &
+bun /app/apps/api/dist/server.js &
 API_PID=$!
 
 # Start web server in background

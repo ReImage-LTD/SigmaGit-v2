@@ -184,23 +184,6 @@ services:
       STORAGE_TYPE: local
       STORAGE_LOCAL_PATH: /data/repos
 
-  migrate:
-    profiles: [tools]
-    image: oven/bun:1.3.5
-    working_dir: /app
-    volumes:
-      - .:/app
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql://sigmagit:\${POSTGRES_PASSWORD}@postgres:5432/sigmagit
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - sigmagit
-    command: ["sh", "-c", "bun install && cd packages/db && bun run db:migrate"]
-
   discord-bot:
     profiles: [discord]
     build:
@@ -348,7 +331,7 @@ build_and_start() {
 
 run_migrations() {
   log_info "Running database migrations..."
-  compose_cmd "--profile tools run --rm migrate"
+  compose_cmd "run --rm migrate"
   log_info "Migrations completed"
 }
 
@@ -420,8 +403,8 @@ set -e
 cd "$APP_DIR"
 git pull origin main
 docker compose $COMPOSE_FILES build
+docker compose $COMPOSE_FILES run --rm migrate
 docker compose $COMPOSE_FILES up -d
-docker compose $COMPOSE_FILES --profile tools run --rm migrate
 echo "Update complete"
 EOF
 

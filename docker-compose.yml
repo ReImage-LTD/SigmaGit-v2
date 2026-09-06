@@ -45,20 +45,43 @@ services:
     networks:
       - sigmagit
 
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://sigmagit:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sigmagit
+    command: ['bun', 'run', 'dist/migrate.js']
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [sigmagit]
+
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    volumes:
+      - repositories_data:/data/repos
     env_file:
       - .env
     environment:
+      STORAGE_LOCAL_PATH: /data/repos
+      NODE_ENV: production
+      PORT: '3001'
       TRUST_PROXY: 'true'
       TRUSTED_PROXY_CIDRS: 172.16.0.0/12
       REDIS_SESSION_URL: redis://redis-session:6379
       REDIS_CACHE_URL: redis://redis-cache:6379
       DATABASE_URL: postgresql://sigmagit:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sigmagit
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis-session:
@@ -71,7 +94,7 @@ services:
     security_opt: ['no-new-privileges:true']
     pids_limit: 256
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://localhost:3001/health']
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:$${PORT:-3001}/ready']
       interval: 15s
       timeout: 5s
       retries: 5
@@ -123,6 +146,7 @@ networks:
     driver: bridge
 
 volumes:
+  repositories_data:
   postgres_data:
   redis_session_data:
   redis_cache_data:
