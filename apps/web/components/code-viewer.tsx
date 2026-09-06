@@ -9,6 +9,49 @@ import { CheckCircle2, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { sanitizeShikiHtml, sanitizeUserUrl } from "@/lib/safe-html";
 
+interface HighlightedCode {
+  content: string;
+  language: string;
+  theme: string | undefined;
+  html: string;
+}
+
+function useHighlightedCode(
+  content: string,
+  language: string,
+  theme: string | undefined,
+  enabled = true,
+) {
+  const [result, setResult] = useState<HighlightedCode | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let active = true;
+    async function highlight() {
+      try {
+        const html = await codeToHtml(content, {
+          lang: !language || language === 'text' ? 'plaintext' : language,
+          theme: theme === 'dark' ? 'github-dark-default' : 'github-light-default',
+        });
+        if (active) setResult({ content, language, theme, html: sanitizeShikiHtml(html) });
+      } catch {
+        if (active) setResult(null);
+      }
+    }
+    void highlight();
+    return () => {
+      active = false;
+    };
+  }, [content, language, theme, enabled]);
+
+  // Immediately fall back to current plain text while a different input is highlighting.
+  return enabled &&
+    result?.content === content &&
+    result.language === language &&
+    result.theme === theme
+    ? result.html
+    : null;
+}
+
 export function CodeViewer({
   content,
   language,
@@ -22,27 +65,14 @@ export function CodeViewer({
   wordWrap?: boolean;
   className?: string;
 }) {
-  const [highlightedCode, setHighlightedCode] = useState<string | null>(null);
   const { theme } = useTheme();
   const displayLineNumbers = showLineNumbers && !wordWrap;
-
-  useEffect(() => {
-    if (language === "markdown" || language === "md") return;
-
-    async function highlight() {
-      try {
-        const html = await codeToHtml(content, {
-          lang: language === "text" ? "plaintext" : language,
-          theme: theme === "dark" ? "github-dark-default" : "github-light-default",
-        });
-        setHighlightedCode(sanitizeShikiHtml(html));
-      } catch {
-        setHighlightedCode(null);
-      }
-    }
-
-    highlight();
-  }, [content, language, theme]);
+  const highlightedCode = useHighlightedCode(
+    content,
+    language,
+    theme,
+    language !== 'markdown' && language !== 'md',
+  );
 
   if (language === "markdown" || language === "md") {
     return (
@@ -113,7 +143,7 @@ export function CodeViewer({
           )}
           <div
             className={cn("flex-1 min-w-0 pl-4 py-2 [&>pre]:bg-transparent!", codeClassName)}
-            dangerouslySetInnerHTML={{ __html: sanitizeShikiHtml(highlightedCode) }}
+            dangerouslySetInnerHTML={{ __html: highlightedCode }}
           />
         </div>
       </div>
@@ -143,23 +173,8 @@ export function CodeViewer({
 }
 
 function CodeBlock({ children, language, theme }: { children: string; language: string; theme: string | undefined }) {
-  const [html, setHtml] = useState<string | null>(null);
+  const html = useHighlightedCode(children, language, theme);
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    async function highlight() {
-      try {
-        const result = await codeToHtml(children, {
-          lang: language || "text",
-          theme: theme === "dark" ? "github-dark-default" : "github-light-default",
-        });
-        setHtml(sanitizeShikiHtml(result));
-      } catch {
-        setHtml(null);
-      }
-    }
-    highlight();
-  }, [children, language, theme]);
 
   const copyCode = useCallback(async () => {
     await navigator.clipboard.writeText(children);
@@ -189,7 +204,7 @@ function CodeBlock({ children, language, theme }: { children: string; language: 
         {html ? (
           <div
             className="p-4 text-sm [&>pre]:bg-transparent! [&>pre]:m-0! [&>pre]:p-0! [&_code]:leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: sanitizeShikiHtml(html) }}
+            dangerouslySetInnerHTML={{ __html: html }}
           />
         ) : (
           <pre className="p-4 text-sm">
