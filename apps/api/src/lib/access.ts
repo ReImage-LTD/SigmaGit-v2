@@ -220,7 +220,6 @@ export async function filterAccessibleRepos<T extends Repository>(
   }
 
   const userId = user.id;
-  const repoIds = repos.map((r) => r.id);
 
   for (const repo of repos) {
     if (repo.ownerId === userId) {
@@ -228,8 +227,14 @@ export async function filterAccessibleRepos<T extends Repository>(
     }
   }
 
+  const pendingRepos = repos.filter((repo) => !accessibleIds.has(repo.id));
+  if (pendingRepos.length === 0) return repos;
+
+  // Search results can contain many issues or pull requests from the same repo.
+  // Query each unresolved repository once, excluding public/owned fast paths.
+  const repoIds = [...new Set(pendingRepos.map((repo) => repo.id))];
   const orgIds = [
-    ...new Set(repos.map((r) => r.organizationId).filter((id): id is string => id != null)),
+    ...new Set(pendingRepos.map((r) => r.organizationId).filter((id): id is string => id != null)),
   ];
 
   const [collaboratorRows, orgMemberRows, teamPermRows] = await Promise.all([

@@ -16,6 +16,31 @@ const repo: Repository = {
 };
 
 describe('consistent repository permissions', () => {
+  it('skips all membership queries for public and owned repositories', async () => {
+    const select = spyOn(db, 'select');
+    const repos = [
+      { ...repo, id: 'public', visibility: 'public' },
+      { ...repo, id: 'owned', ownerId: 'user' },
+    ];
+    expect(await filterAccessibleRepos(repos, { id: 'user' })).toEqual(repos);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('still checks memberships when writing public repositories', async () => {
+    const select = spyOn(db, 'select').mockImplementation(() => {
+      const builder = {
+        from: () => builder,
+        innerJoin: () => builder,
+        where: () => Promise.resolve([]),
+      };
+      return builder as unknown as ReturnType<typeof db.select>;
+    });
+    expect(
+      await filterAccessibleRepos([{ ...repo, visibility: 'public' }], { id: 'user' }, true),
+    ).toEqual([]);
+    expect(select).toHaveBeenCalledTimes(3);
+  });
+
   it('allows team write access despite a read-only collaborator grant', () => {
     expect(
       evaluateRepoAccessFromFacts(
