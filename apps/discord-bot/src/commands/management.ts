@@ -273,8 +273,7 @@ export async function handleTimeout(interaction: any) {
   }
 
   try {
-    const timeoutUntil = new Date(Date.now() + duration * 60 * 1000);
-    await member.timeout(timeoutUntil, reason);
+    await member.timeout(duration * 60 * 1000, reason);
 
     const embed = new EmbedBuilder()
       .setTitle('⏰ Member Timed Out')

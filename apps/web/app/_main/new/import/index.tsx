@@ -13,8 +13,6 @@ import {
   Eye,
   EyeOff,
   GitBranch,
-  Github,
-  Gitlab,
   Globe,
   Key,
   Link as LinkIcon,
@@ -25,6 +23,7 @@ import {
   Shield,
   Tag,
 } from "lucide-react";
+import { Github, Gitlab } from '@/components/brand-icons';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

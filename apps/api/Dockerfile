@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.14 AS builder
+FROM oven/bun:1.4.2 AS builder
 
 WORKDIR /app
 
@@ -24,7 +24,7 @@ COPY apps/api ./apps/api
 WORKDIR /app/apps/api
 RUN bun build src/index.ts --outdir dist --target bun --minify --packages=external
 
-FROM oven/bun:1.3.14-alpine AS runner
+FROM oven/bun:1.4.2-alpine AS runner
 
 WORKDIR /app
 

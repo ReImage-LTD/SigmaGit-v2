@@ -77,5 +77,5 @@ export function useQueryState<T>(
     [key, actualParser],
   );
 
-  return [value as T, setValue];
+  return [value, setValue];
 }

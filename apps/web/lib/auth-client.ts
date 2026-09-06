@@ -15,5 +15,5 @@ export const authClient = createAuthClient({
 export const { signIn, signOut, useSession } = authClient;
 
 export async function signUpWithUsername(data: { email: string; password: string; name: string; username: string }) {
-  return authClient.signUp.email(data as Parameters<typeof authClient.signUp.email>[0]);
+  return authClient.signUp.email(data);
 }

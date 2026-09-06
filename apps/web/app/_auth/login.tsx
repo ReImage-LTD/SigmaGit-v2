@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, Fingerprint, Github, Loader2, Lock, Mail } from "lucide-react";
+import { ArrowRight, Fingerprint, Loader2, Lock, Mail } from "lucide-react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { Github } from '@/components/brand-icons';
 import { authClient, signIn } from "@/lib/auth-client";
 import { createMeta } from "@/lib/seo";
 import { Button } from "@/components/ui/button";

@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { ArrowRight, BookOpen, Code2, GitBranch, Github, Loader2, Plus, Settings, Shield, Sparkles, Terminal, User, Zap } from "lucide-react";
+import { ArrowRight, BookOpen, Code2, GitBranch, Loader2, Plus, Settings, Shield, Sparkles, Terminal, User, Zap } from "lucide-react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useCurrentUserSummary, usePlatformStats, useUserRepositories } from "@sigmagit/hooks";
+import { Github } from '@/components/brand-icons';
 import { createMeta } from "@/lib/seo";
 import RepositoryCard from "@/components/repository-card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";

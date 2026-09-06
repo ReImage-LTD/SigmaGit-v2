@@ -29,7 +29,7 @@ export function useCreateApiKey() {
         name: data.name,
       });
       if (result.error) throw result.error;
-      return result.data as { key: string; id: string };
+      return result.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["api-keys"] });

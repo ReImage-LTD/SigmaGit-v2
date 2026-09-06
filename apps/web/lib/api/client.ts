@@ -41,4 +41,4 @@ export const api = {
       return res.json();
     },
   },
-} as unknown as ApiClient;
+};

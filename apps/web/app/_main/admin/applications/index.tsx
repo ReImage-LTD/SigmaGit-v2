@@ -661,7 +661,7 @@ function StatusBadge({ status }: { status: string }) {
         ? "default"
         : "secondary";
   const label = STATUS_OPTIONS.find((s) => s.value === status)?.label ?? status;
-  return <Badge variant={variant as any} className="text-xs">{label}</Badge>;
+  return <Badge variant={variant} className="text-xs">{label}</Badge>;
 }
 
 function ApplicationDetailDialog({

@@ -9,188 +9,103 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './app/__root'
-import { Route as SitemapRouteImport } from './app/sitemap'
-import { Route as MainRouteImport } from './app/_main'
-import { Route as AuthRouteImport } from './app/_auth'
 import { Route as SplatRouteImport } from './app/$'
-import { Route as MainIndexRouteImport } from './app/_main/index'
-import { Route as MainTermsRouteImport } from './app/_main/terms'
-import { Route as MainSettingsRouteImport } from './app/_main/settings'
-import { Route as MainSecurityRouteImport } from './app/_main/security'
-import { Route as MainSearchRouteImport } from './app/_main/search'
-import { Route as MainRateLimitedRouteImport } from './app/_main/rate-limited'
-import { Route as MainPrivacyRouteImport } from './app/_main/privacy'
-import { Route as MainFeaturesRouteImport } from './app/_main/features'
-import { Route as MainExploreRouteImport } from './app/_main/explore'
-import { Route as MainContactRouteImport } from './app/_main/contact'
-import { Route as MainCareersRouteImport } from './app/_main/careers'
-import { Route as MainAdminRouteImport } from './app/_main/admin'
-import { Route as MainAboutRouteImport } from './app/_main/about'
-import { Route as MainUsernameRouteImport } from './app/_main/$username'
-import { Route as AuthVerifyEmailRouteImport } from './app/_auth/verify-email'
-import { Route as AuthSetupRouteImport } from './app/_auth/setup'
-import { Route as AuthResetPasswordRouteImport } from './app/_auth/reset-password'
-import { Route as AuthRegisterRouteImport } from './app/_auth/register'
-import { Route as AuthLoginRouteImport } from './app/_auth/login'
+import { Route as AuthRouteImport } from './app/_auth'
+import { Route as MainRouteImport } from './app/_main'
+import { Route as SitemapRouteImport } from './app/sitemap'
 import { Route as AuthForgotPasswordRouteImport } from './app/_auth/forgot-password'
-import { Route as MainGistsIndexRouteImport } from './app/_main/gists/index'
-import { Route as MainAdminIndexRouteImport } from './app/_main/admin/index'
+import { Route as AuthLoginRouteImport } from './app/_auth/login'
+import { Route as AuthRegisterRouteImport } from './app/_auth/register'
+import { Route as AuthResetPasswordRouteImport } from './app/_auth/reset-password'
+import { Route as AuthSetupRouteImport } from './app/_auth/setup'
+import { Route as AuthVerifyEmailRouteImport } from './app/_auth/verify-email'
+import { Route as MainIndexRouteImport } from './app/_main/index'
+import { Route as MainUsernameRouteImport } from './app/_main/$username'
+import { Route as MainAboutRouteImport } from './app/_main/about'
+import { Route as MainAdminRouteImport } from './app/_main/admin'
+import { Route as MainCareersRouteImport } from './app/_main/careers'
+import { Route as MainContactRouteImport } from './app/_main/contact'
+import { Route as MainExploreRouteImport } from './app/_main/explore'
+import { Route as MainFeaturesRouteImport } from './app/_main/features'
+import { Route as MainPrivacyRouteImport } from './app/_main/privacy'
+import { Route as MainRateLimitedRouteImport } from './app/_main/rate-limited'
+import { Route as MainSearchRouteImport } from './app/_main/search'
+import { Route as MainSecurityRouteImport } from './app/_main/security'
+import { Route as MainSettingsRouteImport } from './app/_main/settings'
+import { Route as MainTermsRouteImport } from './app/_main/terms'
 import { Route as MainUsernameIndexRouteImport } from './app/_main/$username/index'
-import { Route as MainSettingsMigrationsRouteImport } from './app/_main/settings/migrations'
-import { Route as MainOrganizationsNewRouteImport } from './app/_main/organizations/new'
-import { Route as MainGistsNewRouteImport } from './app/_main/gists/new'
-import { Route as MainGistsIdRouteImport } from './app/_main/gists/$id'
-import { Route as MainUsernameIndexOrgRouteImport } from './app/_main/$username/index-org'
 import { Route as MainUsernameRepoRouteImport } from './app/_main/$username/$repo'
-import { Route as MainNewImportIndexRouteImport } from './app/_main/new/import/index'
-import { Route as MainAdminUtilsIndexRouteImport } from './app/_main/admin/utils/index'
-import { Route as MainAdminUsersIndexRouteImport } from './app/_main/admin/users/index'
-import { Route as MainAdminStatsIndexRouteImport } from './app/_main/admin/stats/index'
-import { Route as MainAdminSettingsIndexRouteImport } from './app/_main/admin/settings/index'
-import { Route as MainAdminRunnersIndexRouteImport } from './app/_main/admin/runners/index'
-import { Route as MainAdminRepositoriesIndexRouteImport } from './app/_main/admin/repositories/index'
-import { Route as MainAdminReportsIndexRouteImport } from './app/_main/admin/reports/index'
-import { Route as MainAdminOrganizationsIndexRouteImport } from './app/_main/admin/organizations/index'
-import { Route as MainAdminGistsIndexRouteImport } from './app/_main/admin/gists/index'
-import { Route as MainAdminDmcaIndexRouteImport } from './app/_main/admin/dmca/index'
-import { Route as MainAdminAuditLogsIndexRouteImport } from './app/_main/admin/audit-logs/index'
-import { Route as MainAdminApplicationsIndexRouteImport } from './app/_main/admin/applications/index'
+import { Route as MainUsernameIndexOrgRouteImport } from './app/_main/$username/index-org'
+import { Route as MainAdminIndexRouteImport } from './app/_main/admin/index'
+import { Route as MainGistsIndexRouteImport } from './app/_main/gists/index'
+import { Route as MainGistsIdRouteImport } from './app/_main/gists/$id'
+import { Route as MainGistsNewRouteImport } from './app/_main/gists/new'
+import { Route as MainOrganizationsNewRouteImport } from './app/_main/organizations/new'
+import { Route as MainSettingsMigrationsRouteImport } from './app/_main/settings/migrations'
 import { Route as MainUsernameRepoIndexRouteImport } from './app/_main/$username/$repo/index'
-import { Route as MainGistsIdEditRouteImport } from './app/_main/gists/$id/edit'
-import { Route as MainAdminUsersUserIdRouteImport } from './app/_main/admin/users/$userId'
-import { Route as MainUsernameRepoSettingsRouteImport } from './app/_main/$username/$repo/settings'
-import { Route as MainUsernameRepoLabelsRouteImport } from './app/_main/$username/$repo/labels'
 import { Route as MainUsernameRepoCommitsRouteImport } from './app/_main/$username/$repo/commits'
-import { Route as MainUsernameRepoWorkflowsIndexRouteImport } from './app/_main/$username/$repo/workflows/index'
-import { Route as MainUsernameRepoRunsIndexRouteImport } from './app/_main/$username/$repo/runs/index'
-import { Route as MainUsernameRepoReleasesIndexRouteImport } from './app/_main/$username/$repo/releases/index'
-import { Route as MainUsernameRepoPullsIndexRouteImport } from './app/_main/$username/$repo/pulls/index'
-import { Route as MainUsernameRepoProjectsIndexRouteImport } from './app/_main/$username/$repo/projects/index'
-import { Route as MainUsernameRepoIssuesIndexRouteImport } from './app/_main/$username/$repo/issues/index'
-import { Route as MainUsernameRepoDiscussionsIndexRouteImport } from './app/_main/$username/$repo/discussions/index'
-import { Route as MainUsernameRepoTreeSplatRouteImport } from './app/_main/$username/$repo/tree/$'
-import { Route as MainUsernameRepoRunsRunIdRouteImport } from './app/_main/$username/$repo/runs/$runId'
-import { Route as MainUsernameRepoReleasesNewRouteImport } from './app/_main/$username/$repo/releases/new'
-import { Route as MainUsernameRepoPullsNewRouteImport } from './app/_main/$username/$repo/pulls/new'
-import { Route as MainUsernameRepoPullsNumberRouteImport } from './app/_main/$username/$repo/pulls/$number'
-import { Route as MainUsernameRepoProjectsProjectIdRouteImport } from './app/_main/$username/$repo/projects/$projectId'
-import { Route as MainUsernameRepoIssuesNewRouteImport } from './app/_main/$username/$repo/issues/new'
-import { Route as MainUsernameRepoIssuesNumberRouteImport } from './app/_main/$username/$repo/issues/$number'
-import { Route as MainUsernameRepoDiscussionsNewRouteImport } from './app/_main/$username/$repo/discussions/new'
-import { Route as MainUsernameRepoDiscussionsNumberRouteImport } from './app/_main/$username/$repo/discussions/$number'
-import { Route as MainUsernameRepoCommitsBranchRouteImport } from './app/_main/$username/$repo/commits/$branch'
+import { Route as MainUsernameRepoLabelsRouteImport } from './app/_main/$username/$repo/labels'
+import { Route as MainUsernameRepoSettingsRouteImport } from './app/_main/$username/$repo/settings'
+import { Route as MainAdminApplicationsIndexRouteImport } from './app/_main/admin/applications/index'
+import { Route as MainAdminAuditLogsIndexRouteImport } from './app/_main/admin/audit-logs/index'
+import { Route as MainAdminDmcaIndexRouteImport } from './app/_main/admin/dmca/index'
+import { Route as MainAdminGistsIndexRouteImport } from './app/_main/admin/gists/index'
+import { Route as MainAdminOrganizationsIndexRouteImport } from './app/_main/admin/organizations/index'
+import { Route as MainAdminReportsIndexRouteImport } from './app/_main/admin/reports/index'
+import { Route as MainAdminRepositoriesIndexRouteImport } from './app/_main/admin/repositories/index'
+import { Route as MainAdminRunnersIndexRouteImport } from './app/_main/admin/runners/index'
+import { Route as MainAdminSettingsIndexRouteImport } from './app/_main/admin/settings/index'
+import { Route as MainAdminStatsIndexRouteImport } from './app/_main/admin/stats/index'
+import { Route as MainAdminUsersIndexRouteImport } from './app/_main/admin/users/index'
+import { Route as MainAdminUsersUserIdRouteImport } from './app/_main/admin/users/$userId'
+import { Route as MainAdminUtilsIndexRouteImport } from './app/_main/admin/utils/index'
+import { Route as MainGistsIdEditRouteImport } from './app/_main/gists/$id/edit'
+import { Route as MainNewImportIndexRouteImport } from './app/_main/new/import/index'
 import { Route as MainUsernameRepoBlobSplatRouteImport } from './app/_main/$username/$repo/blob/$'
+import { Route as MainUsernameRepoCommitsBranchRouteImport } from './app/_main/$username/$repo/commits/$branch'
+import { Route as MainUsernameRepoDiscussionsIndexRouteImport } from './app/_main/$username/$repo/discussions/index'
+import { Route as MainUsernameRepoDiscussionsNumberRouteImport } from './app/_main/$username/$repo/discussions/$number'
+import { Route as MainUsernameRepoDiscussionsNewRouteImport } from './app/_main/$username/$repo/discussions/new'
+import { Route as MainUsernameRepoIssuesIndexRouteImport } from './app/_main/$username/$repo/issues/index'
+import { Route as MainUsernameRepoIssuesNumberRouteImport } from './app/_main/$username/$repo/issues/$number'
+import { Route as MainUsernameRepoIssuesNewRouteImport } from './app/_main/$username/$repo/issues/new'
+import { Route as MainUsernameRepoProjectsIndexRouteImport } from './app/_main/$username/$repo/projects/index'
+import { Route as MainUsernameRepoProjectsProjectIdRouteImport } from './app/_main/$username/$repo/projects/$projectId'
+import { Route as MainUsernameRepoPullsIndexRouteImport } from './app/_main/$username/$repo/pulls/index'
+import { Route as MainUsernameRepoPullsNumberRouteImport } from './app/_main/$username/$repo/pulls/$number'
+import { Route as MainUsernameRepoPullsNewRouteImport } from './app/_main/$username/$repo/pulls/new'
+import { Route as MainUsernameRepoReleasesIndexRouteImport } from './app/_main/$username/$repo/releases/index'
+import { Route as MainUsernameRepoReleasesNewRouteImport } from './app/_main/$username/$repo/releases/new'
+import { Route as MainUsernameRepoRunsIndexRouteImport } from './app/_main/$username/$repo/runs/index'
+import { Route as MainUsernameRepoRunsRunIdRouteImport } from './app/_main/$username/$repo/runs/$runId'
+import { Route as MainUsernameRepoTreeSplatRouteImport } from './app/_main/$username/$repo/tree/$'
+import { Route as MainUsernameRepoWorkflowsIndexRouteImport } from './app/_main/$username/$repo/workflows/index'
 import { Route as MainUsernameRepoCommitsBranchIndexRouteImport } from './app/_main/$username/$repo/commits/$branch/index'
-import { Route as MainUsernameRepoReleasesTagTagRouteImport } from './app/_main/$username/$repo/releases/tag/$tag'
-import { Route as MainUsernameRepoReleasesIdEditRouteImport } from './app/_main/$username/$repo/releases/$id/edit'
 import { Route as MainUsernameRepoCommitsBranchOidRouteImport } from './app/_main/$username/$repo/commits/$branch/$oid'
+import { Route as MainUsernameRepoReleasesIdEditRouteImport } from './app/_main/$username/$repo/releases/$id/edit'
+import { Route as MainUsernameRepoReleasesTagTagRouteImport } from './app/_main/$username/$repo/releases/tag/$tag'
 
-const SitemapRoute = SitemapRouteImport.update({
-  id: '/sitemap',
-  path: '/sitemap',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MainRoute = MainRouteImport.update({
-  id: '/_main',
+const SplatRoute = SplatRouteImport.update({
+  id: '/$',
+  path: '/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
   id: '/_auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SplatRoute = SplatRouteImport.update({
-  id: '/$',
-  path: '/$',
+const MainRoute = MainRouteImport.update({
+  id: '/_main',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MainIndexRoute = MainIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => MainRoute,
+const SitemapRoute = SitemapRouteImport.update({
+  id: '/sitemap',
+  path: '/sitemap',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const MainTermsRoute = MainTermsRouteImport.update({
-  id: '/terms',
-  path: '/terms',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainSettingsRoute = MainSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainSecurityRoute = MainSecurityRouteImport.update({
-  id: '/security',
-  path: '/security',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainSearchRoute = MainSearchRouteImport.update({
-  id: '/search',
-  path: '/search',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainRateLimitedRoute = MainRateLimitedRouteImport.update({
-  id: '/rate-limited',
-  path: '/rate-limited',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainPrivacyRoute = MainPrivacyRouteImport.update({
-  id: '/privacy',
-  path: '/privacy',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainFeaturesRoute = MainFeaturesRouteImport.update({
-  id: '/features',
-  path: '/features',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainExploreRoute = MainExploreRouteImport.update({
-  id: '/explore',
-  path: '/explore',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainContactRoute = MainContactRouteImport.update({
-  id: '/contact',
-  path: '/contact',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainCareersRoute = MainCareersRouteImport.update({
-  id: '/careers',
-  path: '/careers',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainAdminRoute = MainAdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainAboutRoute = MainAboutRouteImport.update({
-  id: '/about',
-  path: '/about',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainUsernameRoute = MainUsernameRouteImport.update({
-  id: '/$username',
-  path: '/$username',
-  getParentRoute: () => MainRoute,
-} as any)
-const AuthVerifyEmailRoute = AuthVerifyEmailRouteImport.update({
-  id: '/verify-email',
-  path: '/verify-email',
-  getParentRoute: () => AuthRoute,
-} as any)
-const AuthSetupRoute = AuthSetupRouteImport.update({
-  id: '/setup',
-  path: '/setup',
-  getParentRoute: () => AuthRoute,
-} as any)
-const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
-  getParentRoute: () => AuthRoute,
-} as any)
-const AuthRegisterRoute = AuthRegisterRouteImport.update({
-  id: '/register',
-  path: '/register',
+const AuthForgotPasswordRoute = AuthForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
   getParentRoute: () => AuthRoute,
 } as any)
 const AuthLoginRoute = AuthLoginRouteImport.update({
@@ -198,49 +113,99 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
   path: '/login',
   getParentRoute: () => AuthRoute,
 } as any)
-const AuthForgotPasswordRoute = AuthForgotPasswordRouteImport.update({
-  id: '/forgot-password',
-  path: '/forgot-password',
+const AuthRegisterRoute = AuthRegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
   getParentRoute: () => AuthRoute,
 } as any)
-const MainGistsIndexRoute = MainGistsIndexRouteImport.update({
-  id: '/gists/',
-  path: '/gists/',
-  getParentRoute: () => MainRoute,
+const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => AuthRoute,
 } as any)
-const MainAdminIndexRoute = MainAdminIndexRouteImport.update({
+const AuthSetupRoute = AuthSetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthVerifyEmailRoute = AuthVerifyEmailRouteImport.update({
+  id: '/verify-email',
+  path: '/verify-email',
+  getParentRoute: () => AuthRoute,
+} as any)
+const MainIndexRoute = MainIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => MainAdminRoute,
+  getParentRoute: () => MainRoute,
+} as any)
+const MainUsernameRoute = MainUsernameRouteImport.update({
+  id: '/$username',
+  path: '/$username',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainAboutRoute = MainAboutRouteImport.update({
+  id: '/about',
+  path: '/about',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainAdminRoute = MainAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainCareersRoute = MainCareersRouteImport.update({
+  id: '/careers',
+  path: '/careers',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainContactRoute = MainContactRouteImport.update({
+  id: '/contact',
+  path: '/contact',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainExploreRoute = MainExploreRouteImport.update({
+  id: '/explore',
+  path: '/explore',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainFeaturesRoute = MainFeaturesRouteImport.update({
+  id: '/features',
+  path: '/features',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainPrivacyRoute = MainPrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainRateLimitedRoute = MainRateLimitedRouteImport.update({
+  id: '/rate-limited',
+  path: '/rate-limited',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainSearchRoute = MainSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainSecurityRoute = MainSecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainSettingsRoute = MainSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainTermsRoute = MainTermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => MainRoute,
 } as any)
 const MainUsernameIndexRoute = MainUsernameIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => MainUsernameRoute,
-} as any)
-const MainSettingsMigrationsRoute = MainSettingsMigrationsRouteImport.update({
-  id: '/migrations',
-  path: '/migrations',
-  getParentRoute: () => MainSettingsRoute,
-} as any)
-const MainOrganizationsNewRoute = MainOrganizationsNewRouteImport.update({
-  id: '/organizations/new',
-  path: '/organizations/new',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainGistsNewRoute = MainGistsNewRouteImport.update({
-  id: '/gists/new',
-  path: '/gists/new',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainGistsIdRoute = MainGistsIdRouteImport.update({
-  id: '/gists/$id',
-  path: '/gists/$id',
-  getParentRoute: () => MainRoute,
-} as any)
-const MainUsernameIndexOrgRoute = MainUsernameIndexOrgRouteImport.update({
-  id: '/index-org',
-  path: '/index-org',
   getParentRoute: () => MainUsernameRoute,
 } as any)
 const MainUsernameRepoRoute = MainUsernameRepoRouteImport.update({
@@ -248,45 +213,81 @@ const MainUsernameRepoRoute = MainUsernameRepoRouteImport.update({
   path: '/$repo',
   getParentRoute: () => MainUsernameRoute,
 } as any)
-const MainNewImportIndexRoute = MainNewImportIndexRouteImport.update({
-  id: '/new/import/',
-  path: '/new/import/',
+const MainUsernameIndexOrgRoute = MainUsernameIndexOrgRouteImport.update({
+  id: '/index-org',
+  path: '/index-org',
+  getParentRoute: () => MainUsernameRoute,
+} as any)
+const MainAdminIndexRoute = MainAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => MainAdminRoute,
+} as any)
+const MainGistsIndexRoute = MainGistsIndexRouteImport.update({
+  id: '/gists/',
+  path: '/gists/',
   getParentRoute: () => MainRoute,
 } as any)
-const MainAdminUtilsIndexRoute = MainAdminUtilsIndexRouteImport.update({
-  id: '/utils/',
-  path: '/utils/',
-  getParentRoute: () => MainAdminRoute,
+const MainGistsIdRoute = MainGistsIdRouteImport.update({
+  id: '/gists/$id',
+  path: '/gists/$id',
+  getParentRoute: () => MainRoute,
 } as any)
-const MainAdminUsersIndexRoute = MainAdminUsersIndexRouteImport.update({
-  id: '/users/',
-  path: '/users/',
-  getParentRoute: () => MainAdminRoute,
+const MainGistsNewRoute = MainGistsNewRouteImport.update({
+  id: '/gists/new',
+  path: '/gists/new',
+  getParentRoute: () => MainRoute,
 } as any)
-const MainAdminStatsIndexRoute = MainAdminStatsIndexRouteImport.update({
-  id: '/stats/',
-  path: '/stats/',
-  getParentRoute: () => MainAdminRoute,
+const MainOrganizationsNewRoute = MainOrganizationsNewRouteImport.update({
+  id: '/organizations/new',
+  path: '/organizations/new',
+  getParentRoute: () => MainRoute,
 } as any)
-const MainAdminSettingsIndexRoute = MainAdminSettingsIndexRouteImport.update({
-  id: '/settings/',
-  path: '/settings/',
-  getParentRoute: () => MainAdminRoute,
+const MainSettingsMigrationsRoute = MainSettingsMigrationsRouteImport.update({
+  id: '/migrations',
+  path: '/migrations',
+  getParentRoute: () => MainSettingsRoute,
 } as any)
-const MainAdminRunnersIndexRoute = MainAdminRunnersIndexRouteImport.update({
-  id: '/runners/',
-  path: '/runners/',
-  getParentRoute: () => MainAdminRoute,
+const MainUsernameRepoIndexRoute = MainUsernameRepoIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => MainUsernameRepoRoute,
 } as any)
-const MainAdminRepositoriesIndexRoute =
-  MainAdminRepositoriesIndexRouteImport.update({
-    id: '/repositories/',
-    path: '/repositories/',
+const MainUsernameRepoCommitsRoute = MainUsernameRepoCommitsRouteImport.update({
+  id: '/commits',
+  path: '/commits',
+  getParentRoute: () => MainUsernameRepoRoute,
+} as any)
+const MainUsernameRepoLabelsRoute = MainUsernameRepoLabelsRouteImport.update({
+  id: '/labels',
+  path: '/labels',
+  getParentRoute: () => MainUsernameRepoRoute,
+} as any)
+const MainUsernameRepoSettingsRoute =
+  MainUsernameRepoSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainAdminApplicationsIndexRoute =
+  MainAdminApplicationsIndexRouteImport.update({
+    id: '/applications/',
+    path: '/applications/',
     getParentRoute: () => MainAdminRoute,
   } as any)
-const MainAdminReportsIndexRoute = MainAdminReportsIndexRouteImport.update({
-  id: '/reports/',
-  path: '/reports/',
+const MainAdminAuditLogsIndexRoute = MainAdminAuditLogsIndexRouteImport.update({
+  id: '/audit-logs/',
+  path: '/audit-logs/',
+  getParentRoute: () => MainAdminRoute,
+} as any)
+const MainAdminDmcaIndexRoute = MainAdminDmcaIndexRouteImport.update({
+  id: '/dmca/',
+  path: '/dmca/',
+  getParentRoute: () => MainAdminRoute,
+} as any)
+const MainAdminGistsIndexRoute = MainAdminGistsIndexRouteImport.update({
+  id: '/gists/',
+  path: '/gists/',
   getParentRoute: () => MainAdminRoute,
 } as any)
 const MainAdminOrganizationsIndexRoute =
@@ -295,158 +296,61 @@ const MainAdminOrganizationsIndexRoute =
     path: '/organizations/',
     getParentRoute: () => MainAdminRoute,
   } as any)
-const MainAdminGistsIndexRoute = MainAdminGistsIndexRouteImport.update({
-  id: '/gists/',
-  path: '/gists/',
+const MainAdminReportsIndexRoute = MainAdminReportsIndexRouteImport.update({
+  id: '/reports/',
+  path: '/reports/',
   getParentRoute: () => MainAdminRoute,
 } as any)
-const MainAdminDmcaIndexRoute = MainAdminDmcaIndexRouteImport.update({
-  id: '/dmca/',
-  path: '/dmca/',
-  getParentRoute: () => MainAdminRoute,
-} as any)
-const MainAdminAuditLogsIndexRoute = MainAdminAuditLogsIndexRouteImport.update({
-  id: '/audit-logs/',
-  path: '/audit-logs/',
-  getParentRoute: () => MainAdminRoute,
-} as any)
-const MainAdminApplicationsIndexRoute =
-  MainAdminApplicationsIndexRouteImport.update({
-    id: '/applications/',
-    path: '/applications/',
+const MainAdminRepositoriesIndexRoute =
+  MainAdminRepositoriesIndexRouteImport.update({
+    id: '/repositories/',
+    path: '/repositories/',
     getParentRoute: () => MainAdminRoute,
   } as any)
-const MainUsernameRepoIndexRoute = MainUsernameRepoIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => MainUsernameRepoRoute,
+const MainAdminRunnersIndexRoute = MainAdminRunnersIndexRouteImport.update({
+  id: '/runners/',
+  path: '/runners/',
+  getParentRoute: () => MainAdminRoute,
 } as any)
-const MainGistsIdEditRoute = MainGistsIdEditRouteImport.update({
-  id: '/edit',
-  path: '/edit',
-  getParentRoute: () => MainGistsIdRoute,
+const MainAdminSettingsIndexRoute = MainAdminSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => MainAdminRoute,
+} as any)
+const MainAdminStatsIndexRoute = MainAdminStatsIndexRouteImport.update({
+  id: '/stats/',
+  path: '/stats/',
+  getParentRoute: () => MainAdminRoute,
+} as any)
+const MainAdminUsersIndexRoute = MainAdminUsersIndexRouteImport.update({
+  id: '/users/',
+  path: '/users/',
+  getParentRoute: () => MainAdminRoute,
 } as any)
 const MainAdminUsersUserIdRoute = MainAdminUsersUserIdRouteImport.update({
   id: '/users/$userId',
   path: '/users/$userId',
   getParentRoute: () => MainAdminRoute,
 } as any)
-const MainUsernameRepoSettingsRoute =
-  MainUsernameRepoSettingsRouteImport.update({
-    id: '/settings',
-    path: '/settings',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoLabelsRoute = MainUsernameRepoLabelsRouteImport.update({
-  id: '/labels',
-  path: '/labels',
-  getParentRoute: () => MainUsernameRepoRoute,
+const MainAdminUtilsIndexRoute = MainAdminUtilsIndexRouteImport.update({
+  id: '/utils/',
+  path: '/utils/',
+  getParentRoute: () => MainAdminRoute,
 } as any)
-const MainUsernameRepoCommitsRoute = MainUsernameRepoCommitsRouteImport.update({
-  id: '/commits',
-  path: '/commits',
-  getParentRoute: () => MainUsernameRepoRoute,
+const MainGistsIdEditRoute = MainGistsIdEditRouteImport.update({
+  id: '/edit',
+  path: '/edit',
+  getParentRoute: () => MainGistsIdRoute,
 } as any)
-const MainUsernameRepoWorkflowsIndexRoute =
-  MainUsernameRepoWorkflowsIndexRouteImport.update({
-    id: '/workflows/',
-    path: '/workflows/',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoRunsIndexRoute =
-  MainUsernameRepoRunsIndexRouteImport.update({
-    id: '/runs/',
-    path: '/runs/',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoReleasesIndexRoute =
-  MainUsernameRepoReleasesIndexRouteImport.update({
-    id: '/releases/',
-    path: '/releases/',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoPullsIndexRoute =
-  MainUsernameRepoPullsIndexRouteImport.update({
-    id: '/pulls/',
-    path: '/pulls/',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoProjectsIndexRoute =
-  MainUsernameRepoProjectsIndexRouteImport.update({
-    id: '/projects/',
-    path: '/projects/',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoIssuesIndexRoute =
-  MainUsernameRepoIssuesIndexRouteImport.update({
-    id: '/issues/',
-    path: '/issues/',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoDiscussionsIndexRoute =
-  MainUsernameRepoDiscussionsIndexRouteImport.update({
-    id: '/discussions/',
-    path: '/discussions/',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoTreeSplatRoute =
-  MainUsernameRepoTreeSplatRouteImport.update({
-    id: '/tree/$',
-    path: '/tree/$',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoRunsRunIdRoute =
-  MainUsernameRepoRunsRunIdRouteImport.update({
-    id: '/runs/$runId',
-    path: '/runs/$runId',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoReleasesNewRoute =
-  MainUsernameRepoReleasesNewRouteImport.update({
-    id: '/releases/new',
-    path: '/releases/new',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoPullsNewRoute =
-  MainUsernameRepoPullsNewRouteImport.update({
-    id: '/pulls/new',
-    path: '/pulls/new',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoPullsNumberRoute =
-  MainUsernameRepoPullsNumberRouteImport.update({
-    id: '/pulls/$number',
-    path: '/pulls/$number',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoProjectsProjectIdRoute =
-  MainUsernameRepoProjectsProjectIdRouteImport.update({
-    id: '/projects/$projectId',
-    path: '/projects/$projectId',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoIssuesNewRoute =
-  MainUsernameRepoIssuesNewRouteImport.update({
-    id: '/issues/new',
-    path: '/issues/new',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoIssuesNumberRoute =
-  MainUsernameRepoIssuesNumberRouteImport.update({
-    id: '/issues/$number',
-    path: '/issues/$number',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoDiscussionsNewRoute =
-  MainUsernameRepoDiscussionsNewRouteImport.update({
-    id: '/discussions/new',
-    path: '/discussions/new',
-    getParentRoute: () => MainUsernameRepoRoute,
-  } as any)
-const MainUsernameRepoDiscussionsNumberRoute =
-  MainUsernameRepoDiscussionsNumberRouteImport.update({
-    id: '/discussions/$number',
-    path: '/discussions/$number',
+const MainNewImportIndexRoute = MainNewImportIndexRouteImport.update({
+  id: '/new/import/',
+  path: '/new/import/',
+  getParentRoute: () => MainRoute,
+} as any)
+const MainUsernameRepoBlobSplatRoute =
+  MainUsernameRepoBlobSplatRouteImport.update({
+    id: '/blob/$',
+    path: '/blob/$',
     getParentRoute: () => MainUsernameRepoRoute,
   } as any)
 const MainUsernameRepoCommitsBranchRoute =
@@ -455,10 +359,106 @@ const MainUsernameRepoCommitsBranchRoute =
     path: '/$branch',
     getParentRoute: () => MainUsernameRepoCommitsRoute,
   } as any)
-const MainUsernameRepoBlobSplatRoute =
-  MainUsernameRepoBlobSplatRouteImport.update({
-    id: '/blob/$',
-    path: '/blob/$',
+const MainUsernameRepoDiscussionsIndexRoute =
+  MainUsernameRepoDiscussionsIndexRouteImport.update({
+    id: '/discussions/',
+    path: '/discussions/',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoDiscussionsNumberRoute =
+  MainUsernameRepoDiscussionsNumberRouteImport.update({
+    id: '/discussions/$number',
+    path: '/discussions/$number',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoDiscussionsNewRoute =
+  MainUsernameRepoDiscussionsNewRouteImport.update({
+    id: '/discussions/new',
+    path: '/discussions/new',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoIssuesIndexRoute =
+  MainUsernameRepoIssuesIndexRouteImport.update({
+    id: '/issues/',
+    path: '/issues/',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoIssuesNumberRoute =
+  MainUsernameRepoIssuesNumberRouteImport.update({
+    id: '/issues/$number',
+    path: '/issues/$number',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoIssuesNewRoute =
+  MainUsernameRepoIssuesNewRouteImport.update({
+    id: '/issues/new',
+    path: '/issues/new',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoProjectsIndexRoute =
+  MainUsernameRepoProjectsIndexRouteImport.update({
+    id: '/projects/',
+    path: '/projects/',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoProjectsProjectIdRoute =
+  MainUsernameRepoProjectsProjectIdRouteImport.update({
+    id: '/projects/$projectId',
+    path: '/projects/$projectId',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoPullsIndexRoute =
+  MainUsernameRepoPullsIndexRouteImport.update({
+    id: '/pulls/',
+    path: '/pulls/',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoPullsNumberRoute =
+  MainUsernameRepoPullsNumberRouteImport.update({
+    id: '/pulls/$number',
+    path: '/pulls/$number',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoPullsNewRoute =
+  MainUsernameRepoPullsNewRouteImport.update({
+    id: '/pulls/new',
+    path: '/pulls/new',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoReleasesIndexRoute =
+  MainUsernameRepoReleasesIndexRouteImport.update({
+    id: '/releases/',
+    path: '/releases/',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoReleasesNewRoute =
+  MainUsernameRepoReleasesNewRouteImport.update({
+    id: '/releases/new',
+    path: '/releases/new',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoRunsIndexRoute =
+  MainUsernameRepoRunsIndexRouteImport.update({
+    id: '/runs/',
+    path: '/runs/',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoRunsRunIdRoute =
+  MainUsernameRepoRunsRunIdRouteImport.update({
+    id: '/runs/$runId',
+    path: '/runs/$runId',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoTreeSplatRoute =
+  MainUsernameRepoTreeSplatRouteImport.update({
+    id: '/tree/$',
+    path: '/tree/$',
+    getParentRoute: () => MainUsernameRepoRoute,
+  } as any)
+const MainUsernameRepoWorkflowsIndexRoute =
+  MainUsernameRepoWorkflowsIndexRouteImport.update({
+    id: '/workflows/',
+    path: '/workflows/',
     getParentRoute: () => MainUsernameRepoRoute,
   } as any)
 const MainUsernameRepoCommitsBranchIndexRoute =
@@ -467,11 +467,11 @@ const MainUsernameRepoCommitsBranchIndexRoute =
     path: '/',
     getParentRoute: () => MainUsernameRepoCommitsBranchRoute,
   } as any)
-const MainUsernameRepoReleasesTagTagRoute =
-  MainUsernameRepoReleasesTagTagRouteImport.update({
-    id: '/releases/tag/$tag',
-    path: '/releases/tag/$tag',
-    getParentRoute: () => MainUsernameRepoRoute,
+const MainUsernameRepoCommitsBranchOidRoute =
+  MainUsernameRepoCommitsBranchOidRouteImport.update({
+    id: '/$oid',
+    path: '/$oid',
+    getParentRoute: () => MainUsernameRepoCommitsBranchRoute,
   } as any)
 const MainUsernameRepoReleasesIdEditRoute =
   MainUsernameRepoReleasesIdEditRouteImport.update({
@@ -479,11 +479,11 @@ const MainUsernameRepoReleasesIdEditRoute =
     path: '/releases/$id/edit',
     getParentRoute: () => MainUsernameRepoRoute,
   } as any)
-const MainUsernameRepoCommitsBranchOidRoute =
-  MainUsernameRepoCommitsBranchOidRouteImport.update({
-    id: '/$oid',
-    path: '/$oid',
-    getParentRoute: () => MainUsernameRepoCommitsBranchRoute,
+const MainUsernameRepoReleasesTagTagRoute =
+  MainUsernameRepoReleasesTagTagRouteImport.update({
+    id: '/releases/tag/$tag',
+    path: '/releases/tag/$tag',
+    getParentRoute: () => MainUsernameRepoRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -945,18 +945,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/sitemap': {
-      id: '/sitemap'
-      path: '/sitemap'
-      fullPath: '/sitemap'
-      preLoaderRoute: typeof SitemapRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_main': {
-      id: '/_main'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof MainRouteImport
+    '/$': {
+      id: '/$'
+      path: '/$'
+      fullPath: '/$'
+      preLoaderRoute: typeof SplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth': {
@@ -966,137 +959,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$': {
-      id: '/$'
-      path: '/$'
-      fullPath: '/$'
-      preLoaderRoute: typeof SplatRouteImport
+    '/_main': {
+      id: '/_main'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof MainRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_main/': {
-      id: '/_main/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof MainIndexRouteImport
-      parentRoute: typeof MainRoute
+    '/sitemap': {
+      id: '/sitemap'
+      path: '/sitemap'
+      fullPath: '/sitemap'
+      preLoaderRoute: typeof SitemapRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/_main/terms': {
-      id: '/_main/terms'
-      path: '/terms'
-      fullPath: '/terms'
-      preLoaderRoute: typeof MainTermsRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/settings': {
-      id: '/_main/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof MainSettingsRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/security': {
-      id: '/_main/security'
-      path: '/security'
-      fullPath: '/security'
-      preLoaderRoute: typeof MainSecurityRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/search': {
-      id: '/_main/search'
-      path: '/search'
-      fullPath: '/search'
-      preLoaderRoute: typeof MainSearchRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/rate-limited': {
-      id: '/_main/rate-limited'
-      path: '/rate-limited'
-      fullPath: '/rate-limited'
-      preLoaderRoute: typeof MainRateLimitedRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/privacy': {
-      id: '/_main/privacy'
-      path: '/privacy'
-      fullPath: '/privacy'
-      preLoaderRoute: typeof MainPrivacyRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/features': {
-      id: '/_main/features'
-      path: '/features'
-      fullPath: '/features'
-      preLoaderRoute: typeof MainFeaturesRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/explore': {
-      id: '/_main/explore'
-      path: '/explore'
-      fullPath: '/explore'
-      preLoaderRoute: typeof MainExploreRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/contact': {
-      id: '/_main/contact'
-      path: '/contact'
-      fullPath: '/contact'
-      preLoaderRoute: typeof MainContactRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/careers': {
-      id: '/_main/careers'
-      path: '/careers'
-      fullPath: '/careers'
-      preLoaderRoute: typeof MainCareersRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/admin': {
-      id: '/_main/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof MainAdminRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/about': {
-      id: '/_main/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof MainAboutRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/$username': {
-      id: '/_main/$username'
-      path: '/$username'
-      fullPath: '/$username'
-      preLoaderRoute: typeof MainUsernameRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_auth/verify-email': {
-      id: '/_auth/verify-email'
-      path: '/verify-email'
-      fullPath: '/verify-email'
-      preLoaderRoute: typeof AuthVerifyEmailRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/setup': {
-      id: '/_auth/setup'
-      path: '/setup'
-      fullPath: '/setup'
-      preLoaderRoute: typeof AuthSetupRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/reset-password': {
-      id: '/_auth/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof AuthResetPasswordRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/register': {
-      id: '/_auth/register'
-      path: '/register'
-      fullPath: '/register'
-      preLoaderRoute: typeof AuthRegisterRouteImport
+    '/_auth/forgot-password': {
+      id: '/_auth/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof AuthForgotPasswordRouteImport
       parentRoute: typeof AuthRoute
     }
     '/_auth/login': {
@@ -1106,67 +987,137 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof AuthRoute
     }
-    '/_auth/forgot-password': {
-      id: '/_auth/forgot-password'
-      path: '/forgot-password'
-      fullPath: '/forgot-password'
-      preLoaderRoute: typeof AuthForgotPasswordRouteImport
+    '/_auth/register': {
+      id: '/_auth/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof AuthRegisterRouteImport
       parentRoute: typeof AuthRoute
     }
-    '/_main/gists/': {
-      id: '/_main/gists/'
-      path: '/gists'
-      fullPath: '/gists/'
-      preLoaderRoute: typeof MainGistsIndexRouteImport
+    '/_auth/reset-password': {
+      id: '/_auth/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof AuthResetPasswordRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/setup': {
+      id: '/_auth/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof AuthSetupRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/verify-email': {
+      id: '/_auth/verify-email'
+      path: '/verify-email'
+      fullPath: '/verify-email'
+      preLoaderRoute: typeof AuthVerifyEmailRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_main/': {
+      id: '/_main/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof MainIndexRouteImport
       parentRoute: typeof MainRoute
     }
-    '/_main/admin/': {
-      id: '/_main/admin/'
-      path: '/'
-      fullPath: '/admin/'
-      preLoaderRoute: typeof MainAdminIndexRouteImport
-      parentRoute: typeof MainAdminRoute
+    '/_main/$username': {
+      id: '/_main/$username'
+      path: '/$username'
+      fullPath: '/$username'
+      preLoaderRoute: typeof MainUsernameRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/about': {
+      id: '/_main/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof MainAboutRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/admin': {
+      id: '/_main/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof MainAdminRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/careers': {
+      id: '/_main/careers'
+      path: '/careers'
+      fullPath: '/careers'
+      preLoaderRoute: typeof MainCareersRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/contact': {
+      id: '/_main/contact'
+      path: '/contact'
+      fullPath: '/contact'
+      preLoaderRoute: typeof MainContactRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/explore': {
+      id: '/_main/explore'
+      path: '/explore'
+      fullPath: '/explore'
+      preLoaderRoute: typeof MainExploreRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/features': {
+      id: '/_main/features'
+      path: '/features'
+      fullPath: '/features'
+      preLoaderRoute: typeof MainFeaturesRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/privacy': {
+      id: '/_main/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof MainPrivacyRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/rate-limited': {
+      id: '/_main/rate-limited'
+      path: '/rate-limited'
+      fullPath: '/rate-limited'
+      preLoaderRoute: typeof MainRateLimitedRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/search': {
+      id: '/_main/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof MainSearchRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/security': {
+      id: '/_main/security'
+      path: '/security'
+      fullPath: '/security'
+      preLoaderRoute: typeof MainSecurityRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/settings': {
+      id: '/_main/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof MainSettingsRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/terms': {
+      id: '/_main/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof MainTermsRouteImport
+      parentRoute: typeof MainRoute
     }
     '/_main/$username/': {
       id: '/_main/$username/'
       path: '/'
       fullPath: '/$username/'
       preLoaderRoute: typeof MainUsernameIndexRouteImport
-      parentRoute: typeof MainUsernameRoute
-    }
-    '/_main/settings/migrations': {
-      id: '/_main/settings/migrations'
-      path: '/migrations'
-      fullPath: '/settings/migrations'
-      preLoaderRoute: typeof MainSettingsMigrationsRouteImport
-      parentRoute: typeof MainSettingsRoute
-    }
-    '/_main/organizations/new': {
-      id: '/_main/organizations/new'
-      path: '/organizations/new'
-      fullPath: '/organizations/new'
-      preLoaderRoute: typeof MainOrganizationsNewRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/gists/new': {
-      id: '/_main/gists/new'
-      path: '/gists/new'
-      fullPath: '/gists/new'
-      preLoaderRoute: typeof MainGistsNewRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/gists/$id': {
-      id: '/_main/gists/$id'
-      path: '/gists/$id'
-      fullPath: '/gists/$id'
-      preLoaderRoute: typeof MainGistsIdRouteImport
-      parentRoute: typeof MainRoute
-    }
-    '/_main/$username/index-org': {
-      id: '/_main/$username/index-org'
-      path: '/index-org'
-      fullPath: '/$username/index-org'
-      preLoaderRoute: typeof MainUsernameIndexOrgRouteImport
       parentRoute: typeof MainUsernameRoute
     }
     '/_main/$username/$repo': {
@@ -1176,130 +1127,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MainUsernameRepoRouteImport
       parentRoute: typeof MainUsernameRoute
     }
-    '/_main/new/import/': {
-      id: '/_main/new/import/'
-      path: '/new/import'
-      fullPath: '/new/import/'
-      preLoaderRoute: typeof MainNewImportIndexRouteImport
+    '/_main/$username/index-org': {
+      id: '/_main/$username/index-org'
+      path: '/index-org'
+      fullPath: '/$username/index-org'
+      preLoaderRoute: typeof MainUsernameIndexOrgRouteImport
+      parentRoute: typeof MainUsernameRoute
+    }
+    '/_main/admin/': {
+      id: '/_main/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof MainAdminIndexRouteImport
+      parentRoute: typeof MainAdminRoute
+    }
+    '/_main/gists/': {
+      id: '/_main/gists/'
+      path: '/gists'
+      fullPath: '/gists/'
+      preLoaderRoute: typeof MainGistsIndexRouteImport
       parentRoute: typeof MainRoute
     }
-    '/_main/admin/utils/': {
-      id: '/_main/admin/utils/'
-      path: '/utils'
-      fullPath: '/admin/utils/'
-      preLoaderRoute: typeof MainAdminUtilsIndexRouteImport
-      parentRoute: typeof MainAdminRoute
+    '/_main/gists/$id': {
+      id: '/_main/gists/$id'
+      path: '/gists/$id'
+      fullPath: '/gists/$id'
+      preLoaderRoute: typeof MainGistsIdRouteImport
+      parentRoute: typeof MainRoute
     }
-    '/_main/admin/users/': {
-      id: '/_main/admin/users/'
-      path: '/users'
-      fullPath: '/admin/users/'
-      preLoaderRoute: typeof MainAdminUsersIndexRouteImport
-      parentRoute: typeof MainAdminRoute
+    '/_main/gists/new': {
+      id: '/_main/gists/new'
+      path: '/gists/new'
+      fullPath: '/gists/new'
+      preLoaderRoute: typeof MainGistsNewRouteImport
+      parentRoute: typeof MainRoute
     }
-    '/_main/admin/stats/': {
-      id: '/_main/admin/stats/'
-      path: '/stats'
-      fullPath: '/admin/stats/'
-      preLoaderRoute: typeof MainAdminStatsIndexRouteImport
-      parentRoute: typeof MainAdminRoute
+    '/_main/organizations/new': {
+      id: '/_main/organizations/new'
+      path: '/organizations/new'
+      fullPath: '/organizations/new'
+      preLoaderRoute: typeof MainOrganizationsNewRouteImport
+      parentRoute: typeof MainRoute
     }
-    '/_main/admin/settings/': {
-      id: '/_main/admin/settings/'
-      path: '/settings'
-      fullPath: '/admin/settings/'
-      preLoaderRoute: typeof MainAdminSettingsIndexRouteImport
-      parentRoute: typeof MainAdminRoute
-    }
-    '/_main/admin/runners/': {
-      id: '/_main/admin/runners/'
-      path: '/runners'
-      fullPath: '/admin/runners/'
-      preLoaderRoute: typeof MainAdminRunnersIndexRouteImport
-      parentRoute: typeof MainAdminRoute
-    }
-    '/_main/admin/repositories/': {
-      id: '/_main/admin/repositories/'
-      path: '/repositories'
-      fullPath: '/admin/repositories/'
-      preLoaderRoute: typeof MainAdminRepositoriesIndexRouteImport
-      parentRoute: typeof MainAdminRoute
-    }
-    '/_main/admin/reports/': {
-      id: '/_main/admin/reports/'
-      path: '/reports'
-      fullPath: '/admin/reports/'
-      preLoaderRoute: typeof MainAdminReportsIndexRouteImport
-      parentRoute: typeof MainAdminRoute
-    }
-    '/_main/admin/organizations/': {
-      id: '/_main/admin/organizations/'
-      path: '/organizations'
-      fullPath: '/admin/organizations/'
-      preLoaderRoute: typeof MainAdminOrganizationsIndexRouteImport
-      parentRoute: typeof MainAdminRoute
-    }
-    '/_main/admin/gists/': {
-      id: '/_main/admin/gists/'
-      path: '/gists'
-      fullPath: '/admin/gists/'
-      preLoaderRoute: typeof MainAdminGistsIndexRouteImport
-      parentRoute: typeof MainAdminRoute
-    }
-    '/_main/admin/dmca/': {
-      id: '/_main/admin/dmca/'
-      path: '/dmca'
-      fullPath: '/admin/dmca/'
-      preLoaderRoute: typeof MainAdminDmcaIndexRouteImport
-      parentRoute: typeof MainAdminRoute
-    }
-    '/_main/admin/audit-logs/': {
-      id: '/_main/admin/audit-logs/'
-      path: '/audit-logs'
-      fullPath: '/admin/audit-logs/'
-      preLoaderRoute: typeof MainAdminAuditLogsIndexRouteImport
-      parentRoute: typeof MainAdminRoute
-    }
-    '/_main/admin/applications/': {
-      id: '/_main/admin/applications/'
-      path: '/applications'
-      fullPath: '/admin/applications/'
-      preLoaderRoute: typeof MainAdminApplicationsIndexRouteImport
-      parentRoute: typeof MainAdminRoute
+    '/_main/settings/migrations': {
+      id: '/_main/settings/migrations'
+      path: '/migrations'
+      fullPath: '/settings/migrations'
+      preLoaderRoute: typeof MainSettingsMigrationsRouteImport
+      parentRoute: typeof MainSettingsRoute
     }
     '/_main/$username/$repo/': {
       id: '/_main/$username/$repo/'
       path: '/'
       fullPath: '/$username/$repo/'
       preLoaderRoute: typeof MainUsernameRepoIndexRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
-    }
-    '/_main/gists/$id/edit': {
-      id: '/_main/gists/$id/edit'
-      path: '/edit'
-      fullPath: '/gists/$id/edit'
-      preLoaderRoute: typeof MainGistsIdEditRouteImport
-      parentRoute: typeof MainGistsIdRoute
-    }
-    '/_main/admin/users/$userId': {
-      id: '/_main/admin/users/$userId'
-      path: '/users/$userId'
-      fullPath: '/admin/users/$userId'
-      preLoaderRoute: typeof MainAdminUsersUserIdRouteImport
-      parentRoute: typeof MainAdminRoute
-    }
-    '/_main/$username/$repo/settings': {
-      id: '/_main/$username/$repo/settings'
-      path: '/settings'
-      fullPath: '/$username/$repo/settings'
-      preLoaderRoute: typeof MainUsernameRepoSettingsRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
-    }
-    '/_main/$username/$repo/labels': {
-      id: '/_main/$username/$repo/labels'
-      path: '/labels'
-      fullPath: '/$username/$repo/labels'
-      preLoaderRoute: typeof MainUsernameRepoLabelsRouteImport
       parentRoute: typeof MainUsernameRepoRoute
     }
     '/_main/$username/$repo/commits': {
@@ -1309,123 +1190,130 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MainUsernameRepoCommitsRouteImport
       parentRoute: typeof MainUsernameRepoRoute
     }
-    '/_main/$username/$repo/workflows/': {
-      id: '/_main/$username/$repo/workflows/'
-      path: '/workflows'
-      fullPath: '/$username/$repo/workflows/'
-      preLoaderRoute: typeof MainUsernameRepoWorkflowsIndexRouteImport
+    '/_main/$username/$repo/labels': {
+      id: '/_main/$username/$repo/labels'
+      path: '/labels'
+      fullPath: '/$username/$repo/labels'
+      preLoaderRoute: typeof MainUsernameRepoLabelsRouteImport
       parentRoute: typeof MainUsernameRepoRoute
     }
-    '/_main/$username/$repo/runs/': {
-      id: '/_main/$username/$repo/runs/'
-      path: '/runs'
-      fullPath: '/$username/$repo/runs/'
-      preLoaderRoute: typeof MainUsernameRepoRunsIndexRouteImport
+    '/_main/$username/$repo/settings': {
+      id: '/_main/$username/$repo/settings'
+      path: '/settings'
+      fullPath: '/$username/$repo/settings'
+      preLoaderRoute: typeof MainUsernameRepoSettingsRouteImport
       parentRoute: typeof MainUsernameRepoRoute
     }
-    '/_main/$username/$repo/releases/': {
-      id: '/_main/$username/$repo/releases/'
-      path: '/releases'
-      fullPath: '/$username/$repo/releases/'
-      preLoaderRoute: typeof MainUsernameRepoReleasesIndexRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/applications/': {
+      id: '/_main/admin/applications/'
+      path: '/applications'
+      fullPath: '/admin/applications/'
+      preLoaderRoute: typeof MainAdminApplicationsIndexRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/pulls/': {
-      id: '/_main/$username/$repo/pulls/'
-      path: '/pulls'
-      fullPath: '/$username/$repo/pulls/'
-      preLoaderRoute: typeof MainUsernameRepoPullsIndexRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/audit-logs/': {
+      id: '/_main/admin/audit-logs/'
+      path: '/audit-logs'
+      fullPath: '/admin/audit-logs/'
+      preLoaderRoute: typeof MainAdminAuditLogsIndexRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/projects/': {
-      id: '/_main/$username/$repo/projects/'
-      path: '/projects'
-      fullPath: '/$username/$repo/projects/'
-      preLoaderRoute: typeof MainUsernameRepoProjectsIndexRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/dmca/': {
+      id: '/_main/admin/dmca/'
+      path: '/dmca'
+      fullPath: '/admin/dmca/'
+      preLoaderRoute: typeof MainAdminDmcaIndexRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/issues/': {
-      id: '/_main/$username/$repo/issues/'
-      path: '/issues'
-      fullPath: '/$username/$repo/issues/'
-      preLoaderRoute: typeof MainUsernameRepoIssuesIndexRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/gists/': {
+      id: '/_main/admin/gists/'
+      path: '/gists'
+      fullPath: '/admin/gists/'
+      preLoaderRoute: typeof MainAdminGistsIndexRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/discussions/': {
-      id: '/_main/$username/$repo/discussions/'
-      path: '/discussions'
-      fullPath: '/$username/$repo/discussions/'
-      preLoaderRoute: typeof MainUsernameRepoDiscussionsIndexRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/organizations/': {
+      id: '/_main/admin/organizations/'
+      path: '/organizations'
+      fullPath: '/admin/organizations/'
+      preLoaderRoute: typeof MainAdminOrganizationsIndexRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/tree/$': {
-      id: '/_main/$username/$repo/tree/$'
-      path: '/tree/$'
-      fullPath: '/$username/$repo/tree/$'
-      preLoaderRoute: typeof MainUsernameRepoTreeSplatRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/reports/': {
+      id: '/_main/admin/reports/'
+      path: '/reports'
+      fullPath: '/admin/reports/'
+      preLoaderRoute: typeof MainAdminReportsIndexRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/runs/$runId': {
-      id: '/_main/$username/$repo/runs/$runId'
-      path: '/runs/$runId'
-      fullPath: '/$username/$repo/runs/$runId'
-      preLoaderRoute: typeof MainUsernameRepoRunsRunIdRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/repositories/': {
+      id: '/_main/admin/repositories/'
+      path: '/repositories'
+      fullPath: '/admin/repositories/'
+      preLoaderRoute: typeof MainAdminRepositoriesIndexRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/releases/new': {
-      id: '/_main/$username/$repo/releases/new'
-      path: '/releases/new'
-      fullPath: '/$username/$repo/releases/new'
-      preLoaderRoute: typeof MainUsernameRepoReleasesNewRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/runners/': {
+      id: '/_main/admin/runners/'
+      path: '/runners'
+      fullPath: '/admin/runners/'
+      preLoaderRoute: typeof MainAdminRunnersIndexRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/pulls/new': {
-      id: '/_main/$username/$repo/pulls/new'
-      path: '/pulls/new'
-      fullPath: '/$username/$repo/pulls/new'
-      preLoaderRoute: typeof MainUsernameRepoPullsNewRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/settings/': {
+      id: '/_main/admin/settings/'
+      path: '/settings'
+      fullPath: '/admin/settings/'
+      preLoaderRoute: typeof MainAdminSettingsIndexRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/pulls/$number': {
-      id: '/_main/$username/$repo/pulls/$number'
-      path: '/pulls/$number'
-      fullPath: '/$username/$repo/pulls/$number'
-      preLoaderRoute: typeof MainUsernameRepoPullsNumberRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/stats/': {
+      id: '/_main/admin/stats/'
+      path: '/stats'
+      fullPath: '/admin/stats/'
+      preLoaderRoute: typeof MainAdminStatsIndexRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/projects/$projectId': {
-      id: '/_main/$username/$repo/projects/$projectId'
-      path: '/projects/$projectId'
-      fullPath: '/$username/$repo/projects/$projectId'
-      preLoaderRoute: typeof MainUsernameRepoProjectsProjectIdRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/users/': {
+      id: '/_main/admin/users/'
+      path: '/users'
+      fullPath: '/admin/users/'
+      preLoaderRoute: typeof MainAdminUsersIndexRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/issues/new': {
-      id: '/_main/$username/$repo/issues/new'
-      path: '/issues/new'
-      fullPath: '/$username/$repo/issues/new'
-      preLoaderRoute: typeof MainUsernameRepoIssuesNewRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/users/$userId': {
+      id: '/_main/admin/users/$userId'
+      path: '/users/$userId'
+      fullPath: '/admin/users/$userId'
+      preLoaderRoute: typeof MainAdminUsersUserIdRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/issues/$number': {
-      id: '/_main/$username/$repo/issues/$number'
-      path: '/issues/$number'
-      fullPath: '/$username/$repo/issues/$number'
-      preLoaderRoute: typeof MainUsernameRepoIssuesNumberRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/admin/utils/': {
+      id: '/_main/admin/utils/'
+      path: '/utils'
+      fullPath: '/admin/utils/'
+      preLoaderRoute: typeof MainAdminUtilsIndexRouteImport
+      parentRoute: typeof MainAdminRoute
     }
-    '/_main/$username/$repo/discussions/new': {
-      id: '/_main/$username/$repo/discussions/new'
-      path: '/discussions/new'
-      fullPath: '/$username/$repo/discussions/new'
-      preLoaderRoute: typeof MainUsernameRepoDiscussionsNewRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/gists/$id/edit': {
+      id: '/_main/gists/$id/edit'
+      path: '/edit'
+      fullPath: '/gists/$id/edit'
+      preLoaderRoute: typeof MainGistsIdEditRouteImport
+      parentRoute: typeof MainGistsIdRoute
     }
-    '/_main/$username/$repo/discussions/$number': {
-      id: '/_main/$username/$repo/discussions/$number'
-      path: '/discussions/$number'
-      fullPath: '/$username/$repo/discussions/$number'
-      preLoaderRoute: typeof MainUsernameRepoDiscussionsNumberRouteImport
+    '/_main/new/import/': {
+      id: '/_main/new/import/'
+      path: '/new/import'
+      fullPath: '/new/import/'
+      preLoaderRoute: typeof MainNewImportIndexRouteImport
+      parentRoute: typeof MainRoute
+    }
+    '/_main/$username/$repo/blob/$': {
+      id: '/_main/$username/$repo/blob/$'
+      path: '/blob/$'
+      fullPath: '/$username/$repo/blob/$'
+      preLoaderRoute: typeof MainUsernameRepoBlobSplatRouteImport
       parentRoute: typeof MainUsernameRepoRoute
     }
     '/_main/$username/$repo/commits/$branch': {
@@ -1435,11 +1323,123 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MainUsernameRepoCommitsBranchRouteImport
       parentRoute: typeof MainUsernameRepoCommitsRoute
     }
-    '/_main/$username/$repo/blob/$': {
-      id: '/_main/$username/$repo/blob/$'
-      path: '/blob/$'
-      fullPath: '/$username/$repo/blob/$'
-      preLoaderRoute: typeof MainUsernameRepoBlobSplatRouteImport
+    '/_main/$username/$repo/discussions/': {
+      id: '/_main/$username/$repo/discussions/'
+      path: '/discussions'
+      fullPath: '/$username/$repo/discussions/'
+      preLoaderRoute: typeof MainUsernameRepoDiscussionsIndexRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/discussions/$number': {
+      id: '/_main/$username/$repo/discussions/$number'
+      path: '/discussions/$number'
+      fullPath: '/$username/$repo/discussions/$number'
+      preLoaderRoute: typeof MainUsernameRepoDiscussionsNumberRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/discussions/new': {
+      id: '/_main/$username/$repo/discussions/new'
+      path: '/discussions/new'
+      fullPath: '/$username/$repo/discussions/new'
+      preLoaderRoute: typeof MainUsernameRepoDiscussionsNewRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/issues/': {
+      id: '/_main/$username/$repo/issues/'
+      path: '/issues'
+      fullPath: '/$username/$repo/issues/'
+      preLoaderRoute: typeof MainUsernameRepoIssuesIndexRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/issues/$number': {
+      id: '/_main/$username/$repo/issues/$number'
+      path: '/issues/$number'
+      fullPath: '/$username/$repo/issues/$number'
+      preLoaderRoute: typeof MainUsernameRepoIssuesNumberRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/issues/new': {
+      id: '/_main/$username/$repo/issues/new'
+      path: '/issues/new'
+      fullPath: '/$username/$repo/issues/new'
+      preLoaderRoute: typeof MainUsernameRepoIssuesNewRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/projects/': {
+      id: '/_main/$username/$repo/projects/'
+      path: '/projects'
+      fullPath: '/$username/$repo/projects/'
+      preLoaderRoute: typeof MainUsernameRepoProjectsIndexRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/projects/$projectId': {
+      id: '/_main/$username/$repo/projects/$projectId'
+      path: '/projects/$projectId'
+      fullPath: '/$username/$repo/projects/$projectId'
+      preLoaderRoute: typeof MainUsernameRepoProjectsProjectIdRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/pulls/': {
+      id: '/_main/$username/$repo/pulls/'
+      path: '/pulls'
+      fullPath: '/$username/$repo/pulls/'
+      preLoaderRoute: typeof MainUsernameRepoPullsIndexRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/pulls/$number': {
+      id: '/_main/$username/$repo/pulls/$number'
+      path: '/pulls/$number'
+      fullPath: '/$username/$repo/pulls/$number'
+      preLoaderRoute: typeof MainUsernameRepoPullsNumberRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/pulls/new': {
+      id: '/_main/$username/$repo/pulls/new'
+      path: '/pulls/new'
+      fullPath: '/$username/$repo/pulls/new'
+      preLoaderRoute: typeof MainUsernameRepoPullsNewRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/releases/': {
+      id: '/_main/$username/$repo/releases/'
+      path: '/releases'
+      fullPath: '/$username/$repo/releases/'
+      preLoaderRoute: typeof MainUsernameRepoReleasesIndexRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/releases/new': {
+      id: '/_main/$username/$repo/releases/new'
+      path: '/releases/new'
+      fullPath: '/$username/$repo/releases/new'
+      preLoaderRoute: typeof MainUsernameRepoReleasesNewRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/runs/': {
+      id: '/_main/$username/$repo/runs/'
+      path: '/runs'
+      fullPath: '/$username/$repo/runs/'
+      preLoaderRoute: typeof MainUsernameRepoRunsIndexRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/runs/$runId': {
+      id: '/_main/$username/$repo/runs/$runId'
+      path: '/runs/$runId'
+      fullPath: '/$username/$repo/runs/$runId'
+      preLoaderRoute: typeof MainUsernameRepoRunsRunIdRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/tree/$': {
+      id: '/_main/$username/$repo/tree/$'
+      path: '/tree/$'
+      fullPath: '/$username/$repo/tree/$'
+      preLoaderRoute: typeof MainUsernameRepoTreeSplatRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
+    }
+    '/_main/$username/$repo/workflows/': {
+      id: '/_main/$username/$repo/workflows/'
+      path: '/workflows'
+      fullPath: '/$username/$repo/workflows/'
+      preLoaderRoute: typeof MainUsernameRepoWorkflowsIndexRouteImport
       parentRoute: typeof MainUsernameRepoRoute
     }
     '/_main/$username/$repo/commits/$branch/': {
@@ -1449,12 +1449,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MainUsernameRepoCommitsBranchIndexRouteImport
       parentRoute: typeof MainUsernameRepoCommitsBranchRoute
     }
-    '/_main/$username/$repo/releases/tag/$tag': {
-      id: '/_main/$username/$repo/releases/tag/$tag'
-      path: '/releases/tag/$tag'
-      fullPath: '/$username/$repo/releases/tag/$tag'
-      preLoaderRoute: typeof MainUsernameRepoReleasesTagTagRouteImport
-      parentRoute: typeof MainUsernameRepoRoute
+    '/_main/$username/$repo/commits/$branch/$oid': {
+      id: '/_main/$username/$repo/commits/$branch/$oid'
+      path: '/$oid'
+      fullPath: '/$username/$repo/commits/$branch/$oid'
+      preLoaderRoute: typeof MainUsernameRepoCommitsBranchOidRouteImport
+      parentRoute: typeof MainUsernameRepoCommitsBranchRoute
     }
     '/_main/$username/$repo/releases/$id/edit': {
       id: '/_main/$username/$repo/releases/$id/edit'
@@ -1463,12 +1463,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MainUsernameRepoReleasesIdEditRouteImport
       parentRoute: typeof MainUsernameRepoRoute
     }
-    '/_main/$username/$repo/commits/$branch/$oid': {
-      id: '/_main/$username/$repo/commits/$branch/$oid'
-      path: '/$oid'
-      fullPath: '/$username/$repo/commits/$branch/$oid'
-      preLoaderRoute: typeof MainUsernameRepoCommitsBranchOidRouteImport
-      parentRoute: typeof MainUsernameRepoCommitsBranchRoute
+    '/_main/$username/$repo/releases/tag/$tag': {
+      id: '/_main/$username/$repo/releases/tag/$tag'
+      path: '/releases/tag/$tag'
+      fullPath: '/$username/$repo/releases/tag/$tag'
+      preLoaderRoute: typeof MainUsernameRepoReleasesTagTagRouteImport
+      parentRoute: typeof MainUsernameRepoRoute
     }
   }
 }

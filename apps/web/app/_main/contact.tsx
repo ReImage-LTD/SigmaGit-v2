@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Github, Mail, MessageSquare, Twitter } from "lucide-react";
+import { Mail, MessageSquare } from "lucide-react";
+import { Github, Twitter } from '@/components/brand-icons';
 import { createMeta } from "@/lib/seo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

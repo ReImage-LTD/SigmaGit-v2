@@ -12,30 +12,31 @@
     "test:security": "bun test src/test"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1057.0",
-    "@aws-sdk/lib-storage": "^3.1057.0",
-    "@better-auth/api-key": "^1.6.13",
-    "@better-auth/passkey": "^1.6.13",
+    "@aws-sdk/client-s3": "^3.1127.0",
+    "@aws-sdk/lib-storage": "^3.1127.0",
+    "@better-auth/api-key": "^1.7.3",
+    "@better-auth/passkey": "^1.7.3",
     "@sigmagit/db": "workspace:*",
     "@sigmagit/lib": "workspace:*",
-    "better-auth": "^1.6.13",
+    "better-auth": "^1.7.3",
     "discord-interactions": "^4.4.0",
-    "discord.js": "^14.26.4",
+    "discord.js": "^14.27.0",
     "drizzle-orm": "0.45.2",
-    "hono": "^4.12.32",
-    "isomorphic-git": "^1.38.3",
-    "nodemailer": "^9.0.3",
-    "nostr-tools": "^2.23.5",
+    "hono": "^4.13.7",
+    "isomorphic-git": "^1.41.9",
+    "nodemailer": "^10.0.0",
+    "nostr-tools": "^2.25.2",
     "postgres": "^3.4.9",
-    "rate-limiter-flexible": "^10.0.1",
-    "redis": "^5.12.1",
-    "resend": "^4.8.0",
-    "zod": "^4.4.3"
+    "rate-limiter-flexible": "^11.2.0",
+    "redis": "^6.2.1",
+    "resend": "^6.26.0",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
-    "@types/nodemailer": "^7.0.11",
-    "bun-types": "latest",
-    "typescript": "^5.9.3"
+    "@types/node": "^26.4.1",
+    "@types/nodemailer": "^8.0.1",
+    "bun-types": "1.4.2",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "@typescript/native": "npm:typescript@^7.0.2"
   }
 }

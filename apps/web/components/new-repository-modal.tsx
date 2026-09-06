@@ -45,7 +45,7 @@ export function NewRepositoryModal({ open, onOpenChange }: NewRepositoryModalPro
     name: "",
     description: "",
     visibility: "public" as "public" | "private",
-    organizationId: "personal" as string,
+    organizationId: "personal",
     license: "none" as (typeof LICENSE_OPTIONS)[number]["value"],
   });
 

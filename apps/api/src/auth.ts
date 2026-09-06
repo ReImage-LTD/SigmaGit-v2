@@ -9,6 +9,7 @@ import { haveIBeenPwned } from 'better-auth/plugins';
 import { APIError } from 'better-auth/api';
 import { betterAuth } from 'better-auth';
 import { getRedisSession } from './redis';
+import { createAtomicAuthStorage } from './lib/auth-secondary-storage';
 
 /**
  * Cookie domain is host-only by default (undefined).
@@ -315,6 +316,7 @@ export const initAuth = async () => {
                 return null;
               }
             },
+            ...createAtomicAuthStorage(redis),
             set: async (key, value, ttl) => {
               try {
                 if (ttl) await redis.set(key, value, { EX: ttl });
@@ -366,7 +368,7 @@ export const initAuth = async () => {
           rateLimit: {
             enabled: true,
             maxRequests: 1000,
-            timeWindow: '1m',
+            timeWindow: 60_000,
           },
         }),
         passkey({
