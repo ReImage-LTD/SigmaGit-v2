@@ -1,3 +1,4 @@
+import { listPage, pageResponse } from '../lib/list-page';
 import { db, gists, gistFiles, gistComments, gistStars, gistForks, users } from '@sigmagit/db';
 import { eq, and, sql, desc, count, or, ilike, inArray } from 'drizzle-orm';
 import { requireAuth, type AuthVariables } from '../middleware/auth';
@@ -399,6 +400,7 @@ app.get('/api/gists/:id/forks', async (c) => {
 });
 
 app.get('/api/gists/:id/comments', async (c) => {
+  const { limit, offset } = listPage(c.req.query());
   const id = c.req.param('id');
   const user = c.get('user');
 
@@ -415,9 +417,11 @@ app.get('/api/gists/:id/comments', async (c) => {
     .from(gistComments)
     .innerJoin(users, eq(gistComments.authorId, users.id))
     .where(eq(gistComments.gistId, id))
-    .orderBy(desc(gistComments.createdAt));
+    .orderBy(desc(gistComments.createdAt), desc(gistComments.id))
+    .limit(limit + 1)
+    .offset(offset);
 
-  return c.json({ comments });
+  return c.json(pageResponse('comments', comments, limit, offset));
 });
 
 app.post('/api/gists/:id/comments', requireAuth, async (c) => {

@@ -1,3 +1,4 @@
+import { listPage, pageResponse } from '../lib/list-page';
 import { changeOrganizationMember, acceptOrganizationInvitation } from '../lib/org-membership';
 import { Hono } from "hono";
 import { db, organizations, organizationMembers, teams, teamMembers, teamRepositories, organizationInvitations, users, repositories } from "@sigmagit/db";
@@ -181,6 +182,7 @@ app.delete("/api/organizations/:org", requireAuth, async (c) => {
 });
 
 app.get("/api/organizations/:org/members", async (c) => {
+  const { limit, offset } = listPage(c.req.query());
   const orgName = c.req.param("org");
 
   const [org] = await db
@@ -201,9 +203,11 @@ app.get("/api/organizations/:org/members", async (c) => {
     .from(organizationMembers)
     .innerJoin(users, eq(organizationMembers.userId, users.id))
     .where(eq(organizationMembers.organizationId, org.id))
-    .orderBy(desc(organizationMembers.createdAt));
+    .orderBy(desc(organizationMembers.createdAt), organizationMembers.userId)
+    .limit(limit + 1)
+    .offset(offset);
 
-  return c.json({ members });
+  return c.json(pageResponse('members', members, limit, offset));
 });
 
 const orgMemberRoleSchema = z
@@ -304,6 +308,7 @@ app.delete("/api/organizations/:org/members/:username", requireAuth, async (c) =
 });
 
 app.get("/api/organizations/:org/teams", requireAuth, async (c) => {
+  const { limit, offset } = listPage(c.req.query());
   const user = c.get("user")!;
   const orgName = c.req.param("org");
 
@@ -334,9 +339,11 @@ app.get("/api/organizations/:org/teams", requireAuth, async (c) => {
     .select()
     .from(teams)
     .where(eq(teams.organizationId, org.id))
-    .orderBy(desc(teams.createdAt));
+    .orderBy(desc(teams.createdAt), teams.id)
+    .limit(limit + 1)
+    .offset(offset);
 
-  return c.json({ teams: teamsList });
+  return c.json(pageResponse('teams', teamsList, limit, offset));
 });
 
 app.post("/api/organizations/:org/teams", requireAuth, async (c) => {
@@ -909,6 +916,7 @@ app.post("/api/organizations/:org/invitations", requireAuth, async (c) => {
 });
 
 app.get("/api/organizations/:org/invitations", requireAuth, async (c) => {
+  const { limit, offset } = listPage(c.req.query());
   const user = c.get("user")!;
   const orgName = c.req.param("org");
 
@@ -948,9 +956,11 @@ app.get("/api/organizations/:org/invitations", requireAuth, async (c) => {
         sql`${organizationInvitations.acceptedAt} IS NULL`
       )
     )
-    .orderBy(desc(organizationInvitations.createdAt));
+    .orderBy(desc(organizationInvitations.createdAt), organizationInvitations.id)
+    .limit(limit + 1)
+    .offset(offset);
 
-  return c.json({ invitations });
+  return c.json(pageResponse('invitations', invitations, limit, offset));
 });
 
 app.delete("/api/organizations/:org/invitations/:id", requireAuth, async (c) => {
@@ -1005,6 +1015,7 @@ app.post("/api/invitations/:token/accept", requireAuth, async (c) => {
 });
 
 app.get("/api/user/organizations", async (c) => {
+  const { limit, offset } = listPage(c.req.query());
   const user = c.get("user");
   if (!user) {
     return c.json({ organizations: [] });
@@ -1019,9 +1030,11 @@ app.get("/api/user/organizations", async (c) => {
     .from(organizationMembers)
     .innerJoin(organizations, eq(organizationMembers.organizationId, organizations.id))
     .where(eq(organizationMembers.userId, user.id))
-    .orderBy(desc(organizationMembers.createdAt));
+    .orderBy(desc(organizationMembers.createdAt), organizationMembers.organizationId)
+    .limit(limit + 1)
+    .offset(offset);
 
-  return c.json({ organizations: orgs });
+  return c.json(pageResponse('organizations', orgs, limit, offset));
 });
 
 export default app;

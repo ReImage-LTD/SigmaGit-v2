@@ -218,6 +218,20 @@ try {
     '0',
   );
   const owner = await database("SELECT id FROM users WHERE username='dockeradmin'");
+  await database(`INSERT INTO projects (repository_id,name,created_at) SELECT '${topRepo}','page-' || n,'2026-01-01'::timestamp FROM generate_series(1,105) n;`);
+  const projectPath = '/api/repositories/dockeradmin/popular/projects';
+  const defaultPage = await (await request(projectPath)).json();
+  assert.equal(defaultPage.projects.length, 30);
+  const firstPage = await (await request(projectPath + '?limit=1000')).json();
+  assert.equal(firstPage.projects.length, 100);
+  assert.equal(firstPage.hasMore, true);
+  assert.equal(firstPage.nextOffset, 100);
+  const lastPage = await (await request(projectPath + '?limit=1000&offset=' + firstPage.nextOffset)).json();
+  assert.equal(lastPage.projects.length, 5);
+  assert.equal(lastPage.hasMore, false);
+  assert.equal(lastPage.nextOffset, null);
+  assert.equal(new Set([...firstPage.projects, ...lastPage.projects].map(project => project.id)).size, 105);
+  console.log('PASS bounded list pagination and stable continuation across timestamp ties');
   const storageOwner = await database(
     `SELECT storage_owner_id FROM repositories WHERE id='${topRepo}'`,
   );

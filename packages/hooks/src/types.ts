@@ -1,3 +1,4 @@
+export interface ListPageOptions { limit?: number; offset?: number }
 export type Owner = {
   id: string;
   username: string;
@@ -778,7 +779,7 @@ export type ApiClient = {
     toggleCommentReaction: (commentId: string, emoji: string) => Promise<{ added: boolean }>;
   };
   projects: {
-    list: (owner: string, repo: string) => Promise<{ projects: ProjectListItem[] }>;
+    list: (owner: string, repo: string, options?: ListPageOptions) => Promise<{ projects: ProjectListItem[]; hasMore?: boolean; nextOffset?: number | null }>;
     get: (id: string) => Promise<Project>;
     create: (owner: string, repo: string, data: { name: string; description?: string }) => Promise<ProjectListItem>;
     update: (id: string, data: { name?: string; description?: string }) => Promise<{ success: boolean }>;
@@ -792,15 +793,15 @@ export type ApiClient = {
     deleteItem: (itemId: string) => Promise<{ success: boolean }>;
   };
   releases: {
-    list: (owner: string, repo: string, includeDrafts?: boolean) => Promise<{ releases: Release[]; hasMore?: boolean }>;
-    getLatest: (owner: string, repo: string) => Promise<Release & { assets: ReleaseAsset[] }>;
+    list: (owner: string, repo: string, includeDrafts?: boolean, options?: ListPageOptions) => Promise<{ releases: Release[]; hasMore?: boolean; nextOffset?: number | null }>;
+    getLatest: (owner: string, repo: string) => Promise<Release & { assets: ReleaseAsset[]; hasMore?: boolean; nextOffset?: number | null }>;
     getByTag: (owner: string, repo: string, tag: string) => Promise<Release & { assets?: ReleaseAsset[] }>;
     get: (owner: string, repo: string, id: string) => Promise<Release>;
     create: (owner: string, repo: string, tagName: string, name: string, body: string, isDraft?: boolean, isPrerelease?: boolean, targetCommitish?: string) => Promise<Release>;
     update: (owner: string, repo: string, id: string, data: { name?: string; body?: string; isDraft?: boolean }) => Promise<{ success: boolean }>;
     delete: (owner: string, repo: string, id: string) => Promise<{ success: boolean }>;
     publish: (owner: string, repo: string, id: string) => Promise<{ success: boolean }>;
-    getAssets: (owner: string, repo: string, id: string) => Promise<{ assets: ReleaseAsset[] }>;
+    getAssets: (owner: string, repo: string, id: string, options?: ListPageOptions) => Promise<{ assets: ReleaseAsset[]; hasMore?: boolean; nextOffset?: number | null }>;
     uploadAsset: (owner: string, repo: string, id: string, file: File) => Promise<{ data: ReleaseAsset }>;
     deleteAsset: (owner: string, repo: string, id: string, assetId: string) => Promise<{ success: boolean }>;
   };
@@ -816,7 +817,7 @@ export type ApiClient = {
     isStarred: (id: string) => Promise<{ starred: boolean }>;
     fork: (id: string) => Promise<{ id: string }>;
     getForks: (id: string, limit?: number, offset?: number) => Promise<{ forks: GistFork[]; hasMore: boolean }>;
-    getComments: (id: string) => Promise<{ comments: GistComment[] }>;
+    getComments: (id: string, options?: ListPageOptions) => Promise<{ comments: GistComment[]; hasMore?: boolean; nextOffset?: number | null }>;
     createComment: (id: string, body: string) => Promise<GistComment>;
     updateComment: (commentId: string, body: string) => Promise<{ success: boolean }>;
       deleteComment: (commentId: string) => Promise<{ success: boolean }>;
@@ -855,12 +856,12 @@ export type ApiClient = {
     }) => Promise<{ data: DmcaRequest }>;
   };
   organizations: {
-    list: () => Promise<{ organizations: Organization[]; hasMore?: boolean }>;
+    list: (options?: ListPageOptions) => Promise<{ organizations: Organization[]; hasMore?: boolean; nextOffset?: number | null }>;
     get: (org: string) => Promise<Organization>;
-    getMembers: (org: string) => Promise<{ members: OrganizationMember[] }>;
-    getTeams: (org: string) => Promise<{ teams: Team[] }>;
+    getMembers: (org: string, options?: ListPageOptions) => Promise<{ members: OrganizationMember[]; hasMore?: boolean; nextOffset?: number | null }>;
+    getTeams: (org: string, options?: ListPageOptions) => Promise<{ teams: Team[]; hasMore?: boolean; nextOffset?: number | null }>;
     getRepositories: (org: string) => Promise<{ repositories: Repository[] }>;
-    getInvitations: (org: string) => Promise<{ invitations: OrganizationInvitation[] }>;
+    getInvitations: (org: string, options?: ListPageOptions) => Promise<{ invitations: OrganizationInvitation[]; hasMore?: boolean; nextOffset?: number | null }>;
     create: (data: unknown) => Promise<Organization>;
     update: (org: string, data: unknown) => Promise<{ success: boolean }>;
     delete: (org: string) => Promise<{ success: boolean }>;
@@ -967,15 +968,15 @@ export type ApiClient = {
     cleanupExpiredSessions: () => Promise<{ deleted: number }>;
     cleanupExpiredVerifications: () => Promise<{ deleted: number }>;
     releases: {
-      list: (owner: string, repo: string, includeDrafts?: boolean) => Promise<{ releases: Release[] }>;
-      getLatest: (owner: string, repo: string) => Promise<Release & { assets: ReleaseAsset[] }>;
+      list: (owner: string, repo: string, includeDrafts?: boolean, options?: ListPageOptions) => Promise<{ releases: Release[]; hasMore?: boolean; nextOffset?: number | null }>;
+      getLatest: (owner: string, repo: string) => Promise<Release & { assets: ReleaseAsset[]; hasMore?: boolean; nextOffset?: number | null }>;
       getByTag: (owner: string, repo: string, tag: string) => Promise<Release & { assets?: ReleaseAsset[] }>;
       get: (owner: string, repo: string, id: string) => Promise<Release>;
       create: (owner: string, repo: string, data: unknown) => Promise<{ data: Release }>;
       update: (owner: string, repo: string, id: string, data: unknown) => Promise<{ data: Release }>;
       delete: (owner: string, repo: string, id: string) => Promise<{ success: boolean }>;
       publish: (owner: string, repo: string, id: string) => Promise<{ data: Release }>;
-      getAssets: (owner: string, repo: string, id: string) => Promise<{ assets: ReleaseAsset[] }>;
+      getAssets: (owner: string, repo: string, id: string, options?: ListPageOptions) => Promise<{ assets: ReleaseAsset[]; hasMore?: boolean; nextOffset?: number | null }>;
       uploadAsset: (owner: string, repo: string, id: string, file: File) => Promise<{ data: ReleaseAsset }>;
       deleteAsset: (owner: string, repo: string, id: string, assetId: string) => Promise<{ success: boolean }>;
     };
@@ -990,7 +991,7 @@ export type ApiClient = {
       isStarred: (id: string) => Promise<{ starred: boolean }>;
       fork: (id: string) => Promise<{ id: string }>;
       getForks: (id: string, limit?: number, offset?: number) => Promise<{ forks: GistFork[]; hasMore: boolean }>;
-      getComments: (id: string) => Promise<{ comments: GistComment[] }>;
+      getComments: (id: string, options?: ListPageOptions) => Promise<{ comments: GistComment[]; hasMore?: boolean; nextOffset?: number | null }>;
       createComment: (id: string, body: string) => Promise<GistComment>;
       getUserGists: (username: string, limit?: number, offset?: number) => Promise<{ gists: Gist[]; hasMore: boolean }>;
     };
@@ -1004,10 +1005,10 @@ export type ApiClient = {
     organizations: {
       list: () => Promise<{ organizations: Organization[] }>;
       get: (org: string) => Promise<Organization>;
-      getMembers: (org: string) => Promise<{ members: OrganizationMember[] }>;
-      getTeams: (org: string) => Promise<{ teams: Team[] }>;
+      getMembers: (org: string, options?: ListPageOptions) => Promise<{ members: OrganizationMember[]; hasMore?: boolean; nextOffset?: number | null }>;
+      getTeams: (org: string, options?: ListPageOptions) => Promise<{ teams: Team[]; hasMore?: boolean; nextOffset?: number | null }>;
       getRepositories: (org: string) => Promise<{ repositories: Repository[] }>;
-      getInvitations: (org: string) => Promise<{ invitations: OrganizationInvitation[] }>;
+      getInvitations: (org: string, options?: ListPageOptions) => Promise<{ invitations: OrganizationInvitation[]; hasMore?: boolean; nextOffset?: number | null }>;
       create: (data: unknown) => Promise<{ data: Organization }>;
       update: (org: string, data: unknown) => Promise<{ success: boolean }>;
       delete: (org: string) => Promise<{ success: boolean }>;
@@ -1027,7 +1028,7 @@ export type ApiClient = {
     };
   };
   workflows: {
-    list: (owner: string, repo: string) => Promise<{ workflows: Workflow[] }>;
+    list: (owner: string, repo: string, options?: ListPageOptions) => Promise<{ workflows: Workflow[] }>;
     sync: (owner: string, repo: string) => Promise<{ workflows: Workflow[] }>;
     dispatch: (owner: string, repo: string, workflowId: string, data?: { ref?: string; inputs?: Record<string, string> }) => Promise<{ runIds: string[] }>;
     listRuns: (owner: string, repo: string, page?: number) => Promise<{ runs: WorkflowRun[] }>;

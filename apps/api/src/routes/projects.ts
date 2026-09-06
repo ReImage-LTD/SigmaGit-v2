@@ -1,3 +1,4 @@
+import { listPage, pageResponse } from '../lib/list-page';
 import {
   db,
   users,
@@ -118,6 +119,7 @@ async function enrichProjectItem(item: typeof projectItems.$inferSelect, reposit
 }
 
 app.get('/api/repositories/:owner/:name/projects', async (c) => {
+  const { limit, offset } = listPage(c.req.query());
   const owner = c.req.param('owner');
   const name = c.req.param('name');
   const currentUser = c.get('user');
@@ -131,9 +133,11 @@ app.get('/api/repositories/:owner/:name/projects', async (c) => {
     .select()
     .from(projects)
     .where(eq(projects.repositoryId, repoAccess.id))
-    .orderBy(projects.createdAt);
+    .orderBy(projects.createdAt, projects.id)
+    .limit(limit + 1)
+    .offset(offset);
 
-  return c.json({ projects: projectList });
+  return c.json(pageResponse('projects', projectList, limit, offset));
 });
 
 app.post('/api/repositories/:owner/:name/projects', requireAuth, async (c) => {

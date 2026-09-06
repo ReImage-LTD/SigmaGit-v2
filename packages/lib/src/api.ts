@@ -65,6 +65,14 @@ export interface ApiClientConfig {
 
 import { setRateLimitCooldown } from "./query";
 
+interface ListPageOptions { limit?: number; offset?: number }
+function listPageQuery(options?: ListPageOptions): string {
+  const params = new URLSearchParams();
+  if (options?.limit !== undefined) params.set('limit', String(options.limit));
+  if (options?.offset !== undefined) params.set('offset', String(options.offset));
+  return params.toString();
+}
+
 export function createApiClient(config: ApiClientConfig): ApiClient {
   const { baseUrl, getAuthHeaders, fetchOptions = {} } = config;
 
@@ -764,7 +772,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
       getForks: (id: string, limit = 20, offset = 0) =>
         apiFetch<{ forks: GistFork[]; hasMore: boolean }>(`/api/gists/${id}/forks?limit=${limit}&offset=${offset}`),
 
-      getComments: (id: string) => apiFetch<{ comments: GistComment[] }>(`/api/gists/${id}/comments`),
+      getComments: (id: string, options?: ListPageOptions) => apiFetch<{ comments: GistComment[] }>(`/api/gists/${id}/comments?${listPageQuery(options)}`),
 
       createComment: (id: string, body: string) =>
         apiFetch<GistComment>(`/api/gists/${id}/comments`, {
@@ -788,9 +796,9 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     },
 
     releases: {
-      list: (owner: string, repo: string, includeDrafts = false) =>
+      list: (owner: string, repo: string, includeDrafts = false, options?: ListPageOptions) =>
         apiFetch<{ releases: Release[]; hasMore?: boolean }>(
-          `/api/repositories/${owner}/${repo}/releases?draft=${includeDrafts}`
+          `/api/repositories/${owner}/${repo}/releases?draft=${includeDrafts}&${listPageQuery(options)}`
         ),
 
       getLatest: (owner: string, repo: string) =>
@@ -833,8 +841,8 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
           method: "POST",
         }),
 
-      getAssets: (owner: string, repo: string, id: string) =>
-        apiFetch<{ assets: ReleaseAsset[] }>(`/api/repositories/${owner}/${repo}/releases/${id}/assets`),
+      getAssets: (owner: string, repo: string, id: string, options?: ListPageOptions) =>
+        apiFetch<{ assets: ReleaseAsset[] }>(`/api/repositories/${owner}/${repo}/releases/${id}/assets?${listPageQuery(options)}`),
 
       uploadAsset: async (owner: string, repo: string, id: string, file: File) => {
         const formData = new FormData();
@@ -946,7 +954,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     },
 
     organizations: {
-      list: async () => {
+      list: async (options?: ListPageOptions) => {
         const data = await apiFetch<{
           organizations: Array<
             | Organization
@@ -957,26 +965,27 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
               }
           >;
           hasMore?: boolean;
-        }>("/api/user/organizations");
+          nextOffset?: number | null;
+        }>(`/api/user/organizations?${listPageQuery(options)}`);
 
         // Normalize API shape to a plain Organization[] for hook/UI consumers.
         const organizations = data.organizations.map((entry) =>
           "organization" in entry ? entry.organization : entry
         );
 
-        return { organizations, hasMore: data.hasMore };
+        return { organizations, hasMore: data.hasMore, nextOffset: data.nextOffset ?? null };
       },
 
       get: (org: string) => apiFetch<Organization>(`/api/organizations/${org}`),
 
-      getMembers: (org: string) => apiFetch<{ members: OrganizationMember[] }>(`/api/organizations/${org}/members`),
+      getMembers: (org: string, options?: ListPageOptions) => apiFetch<{ members: OrganizationMember[] }>(`/api/organizations/${org}/members?${listPageQuery(options)}`),
 
-      getTeams: (org: string) => apiFetch<{ teams: Team[] }>(`/api/organizations/${org}/teams`),
+      getTeams: (org: string, options?: ListPageOptions) => apiFetch<{ teams: Team[] }>(`/api/organizations/${org}/teams?${listPageQuery(options)}`),
 
       getRepositories: (org: string) => apiFetch<{ repositories: Repository[] }>(`/api/organizations/${org}/repositories`),
 
-      getInvitations: (org: string) =>
-        apiFetch<{ invitations: OrganizationInvitation[] }>(`/api/organizations/${org}/invitations`),
+      getInvitations: (org: string, options?: ListPageOptions) =>
+        apiFetch<{ invitations: OrganizationInvitation[] }>(`/api/organizations/${org}/invitations?${listPageQuery(options)}`),
 
       create: (data: unknown) =>
         apiFetch<Organization>("/api/organizations", {
@@ -1124,8 +1133,8 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     },
 
     projects: {
-      list: (owner: string, repo: string) =>
-        apiFetch<any>(`/api/repositories/${owner}/${repo}/projects`),
+      list: (owner: string, repo: string, options?: ListPageOptions) =>
+        apiFetch<any>(`/api/repositories/${owner}/${repo}/projects?${listPageQuery(options)}`),
 
       get: (id: string) => apiFetch<any>(`/api/projects/${id}`),
 
@@ -1371,9 +1380,9 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
         }),
 
       releases: {
-        list: (owner: string, repo: string, includeDrafts = false) =>
+        list: (owner: string, repo: string, includeDrafts = false, options?: ListPageOptions) =>
           apiFetch<{ releases: Release[] }>(
-            `/api/repositories/${owner}/${repo}/releases?draft=${includeDrafts}`
+            `/api/repositories/${owner}/${repo}/releases?draft=${includeDrafts}&${listPageQuery(options)}`
           ),
 
         getLatest: (owner: string, repo: string) =>
@@ -1407,8 +1416,8 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
             method: "POST",
           }),
 
-        getAssets: (owner: string, repo: string, id: string) =>
-          apiFetch<{ assets: ReleaseAsset[] }>(`/api/repositories/${owner}/${repo}/releases/${id}/assets`),
+        getAssets: (owner: string, repo: string, id: string, options?: ListPageOptions) =>
+          apiFetch<{ assets: ReleaseAsset[] }>(`/api/repositories/${owner}/${repo}/releases/${id}/assets?${listPageQuery(options)}`),
 
         uploadAsset: async (owner: string, repo: string, id: string, file: File) => {
           const formData = new FormData();
@@ -1486,7 +1495,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
         getForks: (id: string, limit = 20, offset = 0) =>
           apiFetch<{ forks: GistFork[]; hasMore: boolean }>(`/api/gists/${id}/forks?limit=${limit}&offset=${offset}`),
 
-        getComments: (id: string) => apiFetch<{ comments: GistComment[] }>(`/api/gists/${id}/comments`),
+        getComments: (id: string, options?: ListPageOptions) => apiFetch<{ comments: GistComment[] }>(`/api/gists/${id}/comments?${listPageQuery(options)}`),
 
         createComment: (id: string, body: string) =>
           apiFetch<GistComment>(`/api/gists/${id}/comments`, {
@@ -1553,14 +1562,14 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
 
         get: (org: string) => apiFetch<Organization>(`/api/organizations/${org}`),
 
-        getMembers: (org: string) => apiFetch<{ members: OrganizationMember[] }>(`/api/organizations/${org}/members`),
+        getMembers: (org: string, options?: ListPageOptions) => apiFetch<{ members: OrganizationMember[] }>(`/api/organizations/${org}/members?${listPageQuery(options)}`),
 
-        getTeams: (org: string) => apiFetch<{ teams: Team[] }>(`/api/organizations/${org}/teams`),
+        getTeams: (org: string, options?: ListPageOptions) => apiFetch<{ teams: Team[] }>(`/api/organizations/${org}/teams?${listPageQuery(options)}`),
 
       getRepositories: (org: string) => apiFetch<{ repositories: (Repository & { owner: Owner })[] }>(`/api/organizations/${org}/repositories`),
 
-        getInvitations: (org: string) =>
-          apiFetch<{ invitations: OrganizationInvitation[] }>(`/api/organizations/${org}/invitations`),
+        getInvitations: (org: string, options?: ListPageOptions) =>
+          apiFetch<{ invitations: OrganizationInvitation[] }>(`/api/organizations/${org}/invitations?${listPageQuery(options)}`),
 
         create: (data: unknown) =>
           apiFetch<{ data: Organization }>("/api/organizations", {
@@ -1649,8 +1658,8 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     },
 
     workflows: {
-      list: (owner: string, repo: string) =>
-        apiFetch<{ workflows: Workflow[] }>(`/api/repositories/${owner}/${repo}/workflows`),
+      list: (owner: string, repo: string, options?: ListPageOptions) =>
+        apiFetch<{ workflows: Workflow[] }>(`/api/repositories/${owner}/${repo}/workflows?${listPageQuery(options)}`),
 
       sync: (owner: string, repo: string) =>
         apiFetch<{ workflows: Workflow[] }>(`/api/repositories/${owner}/${repo}/workflows/sync`, {

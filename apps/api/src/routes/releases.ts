@@ -1,3 +1,4 @@
+import { listPage, pageResponse } from '../lib/list-page';
 import { randomUUID } from "crypto";
 import { Hono } from "hono";
 import { db, releases, releaseAssets } from "@sigmagit/db";
@@ -21,6 +22,7 @@ async function canModifyRelease(
 }
 
 app.get("/api/repositories/:owner/:name/releases", async (c) => {
+  const { limit, offset } = listPage(c.req.query());
   const owner = c.req.param("owner");
   const name = c.req.param("name");
   const user = c.get("user");
@@ -42,9 +44,11 @@ app.get("/api/repositories/:owner/:name/releases", async (c) => {
         canSeeDrafts ? undefined : eq(releases.isDraft, false)
       )
     )
-    .orderBy(desc(releases.createdAt));
+    .orderBy(desc(releases.createdAt), desc(releases.id))
+    .limit(limit + 1)
+    .offset(offset);
 
-  return c.json({ releases: releasesList });
+  return c.json(pageResponse('releases', releasesList, limit, offset));
 });
 
 app.get("/api/repositories/:owner/:name/releases/latest", async (c) => {
@@ -318,6 +322,7 @@ app.post("/api/repositories/:owner/:name/releases/:id/assets", requireAuth, asyn
 });
 
 app.get("/api/repositories/:owner/:name/releases/:id/assets", async (c) => {
+  const { limit, offset } = listPage(c.req.query());
   const owner = c.req.param("owner");
   const repoName = c.req.param("name");
   const id = c.req.param("id");
@@ -344,9 +349,12 @@ app.get("/api/repositories/:owner/:name/releases/:id/assets", async (c) => {
   const assets = await db
     .select()
     .from(releaseAssets)
-    .where(eq(releaseAssets.releaseId, id));
+    .where(eq(releaseAssets.releaseId, id))
+    .orderBy(desc(releaseAssets.createdAt), desc(releaseAssets.id))
+    .limit(limit + 1)
+    .offset(offset);
 
-  return c.json({ assets });
+  return c.json(pageResponse('assets', assets, limit, offset));
 });
 
 app.get("/api/repositories/:owner/:name/releases/:id/assets/:assetId", async (c) => {

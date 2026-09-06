@@ -51,6 +51,12 @@ Notification lists return `nextCursor`; pass it as `cursor` for the next page.
 Existing offset requests still work, but cursor and nonzero offset cannot be
 combined. Cursors preserve PostgreSQL timestamp precision and use IDs to break ties.
 
+Project lists, release lists/assets, gist comments, organisation members/teams/
+invitations and the current user's organisations accept `limit` and `offset`.
+They default to 30 rows, cap pages at 100, and return `hasMore` and `nextOffset`.
+The SDK exposes optional pagination arguments; clients should follow `nextOffset`
+when they need the full collection.
+
 Databases previously managed with `db:push` or ad-hoc SQL need their schema and
 migration ledger reconciled before using this migration path. Do not mark
 migrations applied blindly, run `db:push` against production, or delete volumes
