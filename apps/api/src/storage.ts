@@ -6,6 +6,12 @@ import {
   DeleteObjectCommand,
   ListObjectsV2Command,
   HeadObjectCommand,
+  CopyObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCopyCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+  GetObjectTaggingCommand,
 } from '@aws-sdk/client-s3';
 import { readdir, readFile, writeFile, unlink, mkdir, stat, rm } from 'node:fs/promises';
 import { MAX_LOCAL_LIST_KEYS } from './middleware/limits';
@@ -288,62 +294,78 @@ export class S3StorageBackend implements StorageBackend {
     } while (continuationToken);
   }
 
+  private async copyObject(key: string, targetKey: string, size: number, etag?: string): Promise<void> {
+    if (!this.client) throw new Error('S3 is not configured');
+    const client = this.client;
+    const CopySource = encodeURIComponent(this.bucket + '/' + key);
+    const options = { abortSignal: requestSignal() };
+    if (size <= 5 * 1024 ** 3) {
+      await client.send(new CopyObjectCommand({
+        Bucket: this.bucket, Key: targetKey, CopySource, CopySourceIfMatch: etag,
+        MetadataDirective: 'COPY', TaggingDirective: 'COPY',
+      }), options);
+      return;
+    }
+    const [head, tags] = await Promise.all([
+      client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key, IfMatch: etag }), options),
+      client.send(new GetObjectTaggingCommand({ Bucket: this.bucket, Key: key }), options),
+    ]);
+    const upload = await client.send(new CreateMultipartUploadCommand({
+      Bucket: this.bucket, Key: targetKey, ContentType: head.ContentType,
+      ContentEncoding: head.ContentEncoding, ContentLanguage: head.ContentLanguage,
+      ContentDisposition: head.ContentDisposition, CacheControl: head.CacheControl,
+      Expires: head.Expires, Metadata: head.Metadata,
+      Tagging: new URLSearchParams((tags.TagSet ?? []).map(tag => [tag.Key!, tag.Value!])).toString() || undefined,
+    }), options);
+    if (!upload.UploadId) throw new Error('Missing multipart upload ID');
+    const UploadId = upload.UploadId;
+    try {
+      const partSize = Math.max(128 * 1024 ** 2, Math.ceil(size / 10000 / 1024 ** 2) * 1024 ** 2);
+      const partNumbers = Array.from({ length: Math.ceil(size / partSize) }, (_, i) => i + 1);
+      const parts: Array<{ PartNumber: number; ETag: string }> = [];
+      await runAdaptiveBatch(partNumbers, 4, 1, 4, async PartNumber => {
+        const start = (PartNumber - 1) * partSize;
+        const result = await client.send(new UploadPartCopyCommand({
+          Bucket: this.bucket, Key: targetKey, UploadId, PartNumber, CopySource,
+          CopySourceIfMatch: head.ETag ?? etag,
+          CopySourceRange: 'bytes=' + start + '-' + Math.min(size - 1, start + partSize - 1),
+        }), options);
+        if (!result.CopyPartResult?.ETag) throw new Error('Missing copied part ETag');
+        parts.push({PartNumber, ETag: result.CopyPartResult.ETag});
+      });
+      await client.send(new CompleteMultipartUploadCommand({
+        Bucket: this.bucket, Key: targetKey, UploadId,
+        MultipartUpload: { Parts: parts.sort((a, b) => a.PartNumber - b.PartNumber) },
+      }), options);
+    } catch (error) {
+      // The request may already be aborted; cleanup needs its own bounded signal.
+      await client.send(new AbortMultipartUploadCommand({Bucket: this.bucket, Key: targetKey, UploadId}),
+        { abortSignal: AbortSignal.timeout(10000) }).catch(cleanupError => {
+          console.error('[Storage] Failed to abort multipart copy', cleanupError);
+        });
+      throw error;
+    }
+  }
+
   async copyPrefix(sourcePrefix: string, targetPrefix: string): Promise<void> {
     const normalizedSource = directoryPrefix(sourcePrefix);
     const normalizedTarget = directoryPrefix(targetPrefix);
     if (normalizedSource === normalizedTarget || normalizedTarget.startsWith(normalizedSource) ||
         normalizedSource.startsWith(normalizedTarget)) throw new Error('Overlapping storage prefixes');
-    const baseBatchSize = Math.max(1, Math.min(20, config.optimizations.s3AdaptiveMaxConcurrency));
-    const adaptiveEnabled = config.optimizations.s3AdaptiveCopyEnabled;
+    if (!this.client) throw new Error('S3 is not configured');
+    const maximum = Math.max(1, Math.min(20, config.optimizations.s3AdaptiveMaxConcurrency));
+    const minimum = config.optimizations.s3AdaptiveCopyEnabled
+      ? config.optimizations.s3AdaptiveMinConcurrency : maximum;
     let continuationToken: string | undefined;
-
     do {
-      if (!this.client) {
-        throw new Error('S3 is not configured');
-      }
-
-      const response = await this.client.send(
-        new ListObjectsV2Command({
-          Bucket: this.bucket,
-          Prefix: normalizedSource,
-          ContinuationToken: continuationToken,
-        }),
-        { abortSignal: requestSignal() },
-      );
-
-      const keys =
-        response.Contents?.map((obj) => obj.Key).filter((key): key is string => !!key) ?? [];
-
-      for (let i = 0; i < keys.length; i += baseBatchSize) {
-        const batch = keys.slice(i, i + baseBatchSize);
-
-        const copyOne = async (key: string) => {
-          const data = await this.get(key);
-          if (!data) {
-            return;
-          }
-          const suffix = key.slice(normalizedSource.length);
-          const targetKey = `${normalizedTarget}${suffix}`;
-          await this.put(targetKey, data);
-        };
-
-        if (adaptiveEnabled) {
-          await runAdaptiveBatch(
-            batch,
-            baseBatchSize,
-            Math.max(1, config.optimizations.s3AdaptiveMinConcurrency),
-            Math.max(1, config.optimizations.s3AdaptiveMaxConcurrency),
-            copyOne,
-          );
-        } else {
-          await Promise.all(batch.map(copyOne));
-        }
-
-        if ((i / baseBatchSize) % 10 === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        }
-      }
-
+      const response = await this.client.send(new ListObjectsV2Command({
+        Bucket: this.bucket, Prefix: normalizedSource, ContinuationToken: continuationToken,
+      }), {abortSignal: requestSignal()});
+      await runAdaptiveBatch(response.Contents ?? [], maximum, minimum, maximum, async object => {
+        if (!object.Key || object.Size === undefined) throw new Error('Incomplete copy listing');
+        const targetKey = normalizedTarget + object.Key.slice(normalizedSource.length);
+        await this.copyObject(object.Key, targetKey, object.Size, object.ETag);
+      });
       continuationToken = response.NextContinuationToken;
     } while (continuationToken);
   }
