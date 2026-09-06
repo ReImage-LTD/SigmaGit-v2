@@ -694,11 +694,12 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     },
 
     notifications: {
-      list: (options?: { limit?: number; offset?: number; unreadOnly?: boolean }) => {
+      list: (options?: { limit?: number; offset?: number; cursor?: string; unreadOnly?: boolean }) => {
         const params = new URLSearchParams();
         if (options?.limit) params.set("limit", String(options.limit));
         if (options?.offset) params.set("offset", String(options.offset));
         if (options?.unreadOnly) params.set("unread", "true");
+        if (options?.cursor) params.set("cursor", options.cursor);
         const query = params.toString();
         return apiFetch<any>(`/api/notifications${query ? `?${query}` : ""}`);
       },

@@ -71,6 +71,13 @@
       "when": 1788709592286,
       "tag": "0008_production_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788716183925,
+      "tag": "0010_api_performance",
+      "breakpoints": true
     }
   ]
 }

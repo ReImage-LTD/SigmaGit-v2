@@ -541,7 +541,7 @@ app.get("/api/repositories/public", async (c) => {
 
   const orderBy =
     sortBy === "stars"
-      ? desc(sql`star_count`)
+      ? sql`${repositories.starCount} DESC NULLS LAST`
       : sortBy === "created"
         ? desc(repositories.createdAt)
         : desc(repositories.updatedAt);
@@ -559,12 +559,12 @@ app.get("/api/repositories/public", async (c) => {
       username: users.username,
       userName: users.name,
       avatarUrl: users.avatarUrl,
-      starCount: sql<number>`(SELECT COUNT(*) FROM stars WHERE repository_id = ${repositories.id})`.as("star_count"),
+      starCount: repositories.starCount,
     })
     .from(repositories)
     .innerJoin(users, eq(users.id, repositories.ownerId))
     .where(eq(repositories.visibility, "public"))
-    .orderBy(orderBy)
+    .orderBy(orderBy, sql`${repositories.id} DESC NULLS LAST`)
     .limit(limit + 1)
     .offset(offset);
 

@@ -1,13 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "./context";
 
-export function useNotifications(options?: { limit?: number; offset?: number; unreadOnly?: boolean; enabled?: boolean }) {
+export function useNotifications(options?: { limit?: number; offset?: number; cursor?: string; unreadOnly?: boolean; enabled?: boolean }) {
   const api = useApi();
-  const { limit = 20, offset = 0, unreadOnly = false, enabled = true } = options || {};
+  const { limit = 20, offset = 0, cursor, unreadOnly = false, enabled = true } = options || {};
 
   return useQuery({
-    queryKey: ["notifications", limit, offset, unreadOnly],
-    queryFn: () => api.notifications.list({ limit, offset, unreadOnly }),
+    queryKey: ["notifications", limit, offset, unreadOnly, cursor],
+    queryFn: () => api.notifications.list({ limit, offset, cursor, unreadOnly }),
     enabled,
   });
 }

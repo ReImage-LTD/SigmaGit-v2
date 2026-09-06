@@ -235,6 +235,7 @@ export const repositories = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
     storageOwnerId: text("storage_owner_id").notNull().default(sql`gen_random_uuid()::text`),
+    starCount: integer("star_count").notNull().default(0),
     forkedFromId: uuid("forked_from_id").references((): AnyPgColumn => repositories.id, { onDelete: "set null" }),
     visibility: text("visibility", { enum: ["public", "private"] })
       .notNull()
@@ -251,6 +252,7 @@ export const repositories = pgTable(
     index("repositories_forked_from_id_idx").on(table.forkedFromId),
     index("repositories_organization_id_idx").on(table.organizationId),
     index("repositories_owner_updated_idx").on(table.ownerId, table.updatedAt),
+    index("repositories_visibility_stars_idx").on(table.visibility, table.starCount.desc(), table.id.desc()),
     index("repositories_owner_visibility_updated_idx").on(table.ownerId, table.visibility, table.updatedAt),
     index("repositories_search_idx").using("gin", table.searchVector),
   ]
@@ -852,6 +854,8 @@ export const notifications = pgTable(
   (table) => [
     index("notifications_user_id_idx").on(table.userId),
     index("notifications_user_read_idx").on(table.userId, table.read),
+    index("notifications_user_created_idx").on(table.userId, table.createdAt.desc(), table.id.desc()),
+    index("notifications_user_read_created_idx").on(table.userId, table.read, table.createdAt.desc(), table.id.desc()),
   ]
 );
 

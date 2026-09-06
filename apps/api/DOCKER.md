@@ -42,6 +42,15 @@ schedule a maintenance window for populated installations. Migration `0005a`
 restores the missing organisation schema before the existing storage migration.
 Already-applied migration timestamps are preserved.
 
+Migration `0010` backfills repository star totals under a write lock on `stars`
+and creates ranking/notification indexes. Allow a maintenance window for large
+tables. Its triggers keep totals correct for inserts, deletes, transfers and
+user-deletion cascades; apply the migration before deploying the updated API.
+
+Notification lists return `nextCursor`; pass it as `cursor` for the next page.
+Existing offset requests still work, but cursor and nonzero offset cannot be
+combined. Cursors preserve PostgreSQL timestamp precision and use IDs to break ties.
+
 Databases previously managed with `db:push` or ad-hoc SQL need their schema and
 migration ledger reconciled before using this migration path. Do not mark
 migrations applied blindly, run `db:push` against production, or delete volumes

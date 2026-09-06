@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { db, users, notifications } from "@sigmagit/db";
-import { eq, sql, and, desc, inArray } from "drizzle-orm";
+import { eq, sql, and, desc, inArray, getTableColumns } from "drizzle-orm";
+import { decodeNotificationCursor, encodeNotificationCursor } from '../lib/notification-cursor';
 import { authMiddleware, requireAuth, type AuthVariables } from "../middleware/auth";
 import { parseLimit, parseOffset } from "../lib/validation";
 import { notifyUser } from "../websocket";
@@ -42,17 +43,23 @@ app.get("/api/notifications", requireAuth, async (c) => {
   const limit = parseLimit(c.req.query("limit"), 20, 50);
   const offset = parseOffset(c.req.query("offset"), 0);
   const unreadOnly = c.req.query("unread") === "true";
+  const rawCursor = c.req.query('cursor');
+  const cursor = rawCursor === undefined ? null : decodeNotificationCursor(rawCursor);
+  if (rawCursor !== undefined && (!cursor || offset !== 0)) {
+    return c.json({ error: 'Invalid notification cursor or conflicting offset' }, 400);
+  }
 
   const conditions = [eq(notifications.userId, user.id)];
+  if (cursor) conditions.push(sql`(${notifications.createdAt}, ${notifications.id}) < (${cursor.timestamp}::timestamp, ${cursor.id}::uuid)`);
   if (unreadOnly) {
     conditions.push(eq(notifications.read, false));
   }
 
   const results = await db
-    .select()
+    .select({ ...getTableColumns(notifications), cursorTimestamp: sql<string>`to_char(${notifications.createdAt}, 'YYYY-MM-DD"T"HH24:MI:SS.US')` })
     .from(notifications)
     .where(and(...conditions))
-    .orderBy(desc(notifications.createdAt))
+    .orderBy(sql`${notifications.createdAt} DESC NULLS LAST`, sql`${notifications.id} DESC NULLS LAST`)
     .limit(limit + 1)
     .offset(offset);
 
@@ -75,7 +82,9 @@ app.get("/api/notifications", requireAuth, async (c) => {
     createdAt: notification.createdAt,
   }));
 
-  return c.json({ notifications: notificationsList, hasMore });
+  const last = slice.at(-1);
+  const nextCursor = hasMore && last ? encodeNotificationCursor({ timestamp: last.cursorTimestamp, id: last.id }) : null;
+  return c.json({ notifications: notificationsList, hasMore, nextCursor });
 });
 
 app.get("/api/notifications/unread-count", requireAuth, async (c) => {

@@ -19,12 +19,8 @@ app.get("/api/health", async (c) => {
 
 // Public status (maintenance mode + first-run setup) - no auth, so app can gate users
 app.get("/api/status", async (c) => {
-  // needsSetup flips exactly once (when the first user is created), so it is
-  // computed fresh on every call rather than cached. It's a cheap indexed count.
-  const [userCountRow] = await db
-    .select({ count: sql<number>`COUNT(*)::int` })
-    .from(users);
-  const needsSetup = Number(userCountRow?.count ?? 0) === 0;
+  const [existingUser] = await db.select({ id: users.id }).from(users).limit(1);
+  const needsSetup = !existingUser;
 
   const cached = await getCached<{ maintenanceMode: boolean }>(appCache.systemSettingKey("maintenance_mode"));
   if (cached) {
