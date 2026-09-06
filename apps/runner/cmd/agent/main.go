@@ -33,20 +33,22 @@ import (
 
 // RunnerConfig holds all runtime configuration.
 type RunnerConfig struct {
-	APIURL       string   `json:"apiUrl"`
-	RunnerID     string   `json:"runnerId"`
-	Token        string   `json:"token"`
-	Name         string   `json:"name"`
-	Labels       []string `json:"labels"`
-	OS           string   `json:"os"`
-	Arch         string   `json:"arch"`
-	Version      string   `json:"version"`
-	WorkDir      string   `json:"workDir"`
-	PollInterval int      `json:"pollInterval"`
-	ConfigPath   string   `json:"-"`
+	APIURL             string   `json:"apiUrl"`
+	RunnerID           string   `json:"runnerId"`
+	Token              string   `json:"token"`
+	Name               string   `json:"name"`
+	Labels             []string `json:"labels"`
+	OS                 string   `json:"os"`
+	Arch               string   `json:"arch"`
+	Version            string   `json:"version"`
+	WorkDir            string   `json:"workDir"`
+	PollInterval       int      `json:"pollInterval"`
+	ConfigPath         string   `json:"-"`
+	RegistrationSecret string   `json:"-"`
+	JobImage           string   `json:"jobImage"`
 }
 
-const agentVersion = "1.0.0"
+var agentVersion = "1.0.0"
 
 func loadConfig() *RunnerConfig {
 	hostname, _ := os.Hostname()
@@ -58,14 +60,16 @@ func loadConfig() *RunnerConfig {
 	}
 
 	cfg := &RunnerConfig{
-		APIURL:       os.Getenv("SIGMAGIT_API_URL"),
-		Name:         valueOrDefault(os.Getenv("SIGMAGIT_RUNNER_NAME"), hostname),
-		WorkDir:      valueOrDefault(os.Getenv("SIGMAGIT_RUNNER_WORKDIR"), "/tmp/sigmagit-runner"),
-		OS:           runtime.GOOS,
-		Arch:         runtime.GOARCH,
-		Version:      agentVersion,
-		PollInterval: parseIntOrDefault(os.Getenv("SIGMAGIT_POLL_INTERVAL"), 5),
-		ConfigPath:   configPath,
+		APIURL:             os.Getenv("SIGMAGIT_API_URL"),
+		Name:               valueOrDefault(os.Getenv("SIGMAGIT_RUNNER_NAME"), hostname),
+		WorkDir:            valueOrDefault(os.Getenv("SIGMAGIT_RUNNER_WORKDIR"), "/tmp/sigmagit-runner"),
+		OS:                 runtime.GOOS,
+		Arch:               runtime.GOARCH,
+		Version:            agentVersion,
+		PollInterval:       parseIntOrDefault(os.Getenv("SIGMAGIT_POLL_INTERVAL"), 5),
+		ConfigPath:         configPath,
+		RegistrationSecret: os.Getenv("SIGMAGIT_RUNNER_REGISTRATION_SECRET"),
+		JobImage:           valueOrDefault(os.Getenv("SIGMAGIT_RUNNER_IMAGE"), "node:24-bookworm"),
 	}
 
 	// Labels
@@ -148,6 +152,7 @@ func main() {
 	// Register if we don't have a token yet
 	if cfg.Token == "" || cfg.RunnerID == "" {
 		log.Printf("[Agent] Registering runner %q with %s...", cfg.Name, cfg.APIURL)
+		client.SetToken(cfg.RegistrationSecret)
 		id, token, err := client.Register(cfg.Name, cfg.Labels, cfg.OS, cfg.Arch, cfg.Version)
 		if err != nil {
 			log.Fatalf("[Agent] Registration failed: %v", err)
@@ -199,8 +204,12 @@ func main() {
 
 		fmt.Printf("[Agent] Received job: %s (%s)\n", job.Name, job.ID)
 
-		if err := executor.Execute(ctx, job); err != nil {
-			log.Printf("[Agent] Job %s failed: %v", job.ID, err)
+		if err := executeWithHeartbeat(ctx, executor, client, cfg, job); err != nil {
+			if err == errAssignmentCancelled {
+				log.Printf("[Agent] Job %s cancelled", job.ID)
+			} else {
+				log.Printf("[Agent] Job %s failed: %v", job.ID, err)
+			}
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -31,7 +32,7 @@ type StepResult struct {
 	Number    int    `json:"number"`
 	Status    string `json:"status"`
 	ExitCode  int    `json:"exitCode"`
-	LogOutput string `json:"logOutput"`
+	LogOutput string `json:"logOutput,omitempty"`
 }
 
 // APIClient handles all communication with the Sigmagit API.
@@ -43,7 +44,7 @@ type APIClient struct {
 
 func NewAPIClient(baseURL string) *APIClient {
 	return &APIClient{
-		baseURL: baseURL,
+		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -80,7 +81,7 @@ func (c *APIClient) do(method, path string, body interface{}) ([]byte, int, erro
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024*1024))
 	if err != nil {
 		return nil, resp.StatusCode, err
 	}
@@ -164,18 +165,28 @@ func (c *APIClient) ReportProgress(runnerID, jobID, stepName string, stepNumber 
 
 // ReportCompletion reports final job status to the API.
 func (c *APIClient) ReportCompletion(runnerID, jobID, status, conclusion string, steps []StepResult) error {
+	if steps == nil {
+		steps = []StepResult{}
+	}
 	payload := map[string]interface{}{
 		"status":     status,
 		"conclusion": conclusion,
 		"steps":      steps,
 	}
 
-	_, statusCode, err := c.do("POST", "/api/runners/"+runnerID+"/jobs/"+jobID+"/complete", payload)
-	if err != nil {
-		return err
+	for attempt := 0; ; attempt++ {
+		_, statusCode, err := c.do("POST", "/api/runners/"+runnerID+"/jobs/"+jobID+"/complete", payload)
+		if err == nil && statusCode == http.StatusOK {
+			return nil
+		}
+		// The API accepts identical terminal reports, so retry transport/server
+		// failures without executing the workflow a second time.
+		if attempt >= 2 || (err == nil && statusCode < 500) {
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("complete: unexpected status %d", statusCode)
+		}
+		time.Sleep(time.Duration(attempt+1) * time.Second)
 	}
-	if statusCode != 200 {
-		return fmt.Errorf("complete: unexpected status %d", statusCode)
-	}
-	return nil
 }

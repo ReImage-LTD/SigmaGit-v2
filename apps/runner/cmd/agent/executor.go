@@ -3,13 +3,13 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,28 +33,50 @@ func NewExecutor(cfg *RunnerConfig, client *APIClient) *Executor {
 
 // Execute runs a single job payload.
 func (e *Executor) Execute(ctx context.Context, job *JobPayload) error {
+	if len(job.ID) != 36 || strings.ContainsAny(job.ID, "/\\.") {
+		return errors.New("invalid job ID")
+	}
 	jobDir := filepath.Join(e.cfg.WorkDir, "jobs", job.ID)
 	if err := os.MkdirAll(jobDir, 0755); err != nil {
-		return fmt.Errorf("failed to create job dir: %w", err)
+		return e.failJob(job, fmt.Sprintf("failed to create job dir: %v", err))
 	}
+	// UUID assignment IDs keep cleanup inside the runner-owned jobs directory.
 	defer os.RemoveAll(jobDir)
 
 	repoDir := filepath.Join(jobDir, "repo")
 
 	// Step 1: Checkout the repository
 	if err := e.checkoutRepo(ctx, job, repoDir); err != nil {
+		if errors.Is(context.Cause(ctx), errAssignmentCancelled) {
+			return errAssignmentCancelled
+		}
 		return e.failJob(job, fmt.Sprintf("checkout failed: %v", err))
 	}
 
 	// Step 2: Write event.json
 	eventPath := filepath.Join(jobDir, "event.json")
-	eventData, _ := json.Marshal(job.EventPayload)
+	event := make(map[string]interface{}, len(job.EventPayload)+3)
+	for key, value := range job.EventPayload {
+		event[key] = value
+	}
+	event["ref"] = "refs/heads/" + job.Branch
+	event["after"] = job.CommitSha
+	event["repository"] = map[string]interface{}{
+		"name": job.RepoName, "full_name": job.RepoOwner + "/" + job.RepoName,
+		"owner": map[string]string{"login": job.RepoOwner}, "default_branch": job.Branch,
+	}
+	eventData, _ := json.Marshal(event)
 	if err := os.WriteFile(eventPath, eventData, 0644); err != nil {
 		return e.failJob(job, fmt.Sprintf("failed to write event.json: %v", err))
 	}
 
 	// Step 3: Execute via act
 	stepResults, runErr := e.runWithAct(ctx, job, repoDir, eventPath)
+	if errors.Is(context.Cause(ctx), errAssignmentCancelled) {
+		// Cancellation is already terminal in the API; never overwrite it with
+		// a failure report from the interrupted container.
+		return errAssignmentCancelled
+	}
 
 	// Step 4: Report completion
 	conclusion := "success"
@@ -66,7 +88,7 @@ func (e *Executor) Execute(ctx context.Context, job *JobPayload) error {
 	}
 
 	if err := e.client.ReportCompletion(e.cfg.RunnerID, job.ID, status, conclusion, stepResults); err != nil {
-		log.Printf("[Executor] Failed to report completion for job %s: %v", job.ID, err)
+		return fmt.Errorf("report completion: %w", err)
 	}
 
 	return runErr
@@ -74,55 +96,49 @@ func (e *Executor) Execute(ctx context.Context, job *JobPayload) error {
 
 // checkoutRepo clones/fetches the repo at the specified commit using the API's git endpoint.
 func (e *Executor) checkoutRepo(ctx context.Context, job *JobPayload, destDir string) error {
-	repoURL := fmt.Sprintf("%s/%s.git", e.cfg.APIURL, job.ID)
-
-	if job.RepoOwner != "" && job.RepoName != "" {
-		repoURL = fmt.Sprintf("%s/%s/%s.git", e.cfg.APIURL, job.RepoOwner, job.RepoName)
+	if job.RepoOwner == "" || job.RepoName == "" {
+		return errors.New("assignment is missing repository coordinates")
 	}
-
-	// Try to extract owner/name from event payload if available
-	if ep, ok := job.EventPayload["repository"].(map[string]interface{}); ok {
-		owner, _ := ep["owner"].(string)
-		name, _ := ep["name"].(string)
-		if owner != "" && name != "" {
-			repoURL = fmt.Sprintf("%s/%s/%s.git", e.cfg.APIURL, owner, name)
+	repoURL := strings.TrimRight(e.cfg.APIURL, "/") + "/" + url.PathEscape(job.RepoOwner) + "/" + url.PathEscape(job.RepoName) + ".git"
+	if job.CommitSha == "" {
+		return errors.New("assignment is missing commit SHA")
+	}
+	// Keep credentials out of argv, clone errors, and .git/config.
+	gitEnv := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never", "GIT_CONFIG_COUNT=3",
+		"GIT_CONFIG_KEY_0=http.extraHeader", "GIT_CONFIG_VALUE_0=Authorization: Bearer "+e.cfg.Token,
+		"GIT_CONFIG_KEY_1=http.followRedirects", "GIT_CONFIG_VALUE_1=false",
+		"GIT_CONFIG_KEY_2=credential.helper", "GIT_CONFIG_VALUE_2=")
+	runGit := func(args ...string) error {
+		cmd := exec.CommandContext(ctx, "git", args...)
+		cmd.Env = gitEnv
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("git failed: %w: %s", err, strings.ReplaceAll(string(out), e.cfg.Token, "[REDACTED]"))
 		}
+		return nil
 	}
-
-	// Also check workflowDefinition for repo info
-	if wd := job.WorkflowDefinition; wd != nil {
-		if owner, ok := wd["repoOwner"].(string); ok {
-			if name, ok := wd["repoName"].(string); ok {
-				repoURL = fmt.Sprintf("%s/%s/%s.git", e.cfg.APIURL, owner, name)
-			}
-		}
-	}
-
-	log.Printf("[Executor] Cloning %s@%s into %s", repoURL, job.CommitSha, destDir)
-
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
 	}
-
-	// Use git clone with basic auth (runner token)
-	cloneURL := strings.Replace(repoURL, "://", fmt.Sprintf("://runner:%s@", e.cfg.Token), 1)
-
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=50", cloneURL, destDir)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("git clone failed: %w\nOutput: %s", err, out)
+	if err := runGit("init", destDir); err != nil {
+		return err
 	}
-
-	// Checkout specific commit if provided
-	if job.CommitSha != "" && job.CommitSha != "HEAD" {
-		checkout := exec.CommandContext(ctx, "git", "-C", destDir, "checkout", job.CommitSha)
-		if out, err := checkout.CombinedOutput(); err != nil {
-			log.Printf("[Executor] Warning: git checkout %s failed: %v\nOutput: %s", job.CommitSha, err, out)
-		}
+	if err := runGit("-C", destDir, "remote", "add", "origin", repoURL); err != nil {
+		return err
 	}
-
-	return nil
+	ref := job.CommitSha
+	if ref == "HEAD" {
+		ref = "refs/heads/" + job.Branch
+	}
+	if strings.HasPrefix(ref, "-") {
+		return errors.New("invalid checkout ref")
+	}
+	// Fetch the assigned revision, even if it is not on the default branch or
+	// lies outside a shallow clone's initial history. Never run a different HEAD.
+	if err := runGit("-C", destDir, "fetch", "--no-tags", "origin", ref); err != nil {
+		return err
+	}
+	return runGit("-C", destDir, "checkout", "--detach", "FETCH_HEAD")
 }
 
 // runWithAct executes the workflow using the act library.
@@ -132,19 +148,25 @@ func (e *Executor) runWithAct(
 	repoDir string,
 	eventPath string,
 ) ([]StepResult, error) {
-	// Collect per-step logs
-	stepLogs := make(map[string]*bytes.Buffer)
-	stepOrder := []string{}
-
-	// Custom logrus hook to capture output and stream to API
-	hook := &logStreamHook{
-		client:    e.client,
-		runnerID:  e.cfg.RunnerID,
-		jobID:     job.ID,
-		stepLogs:  stepLogs,
-		stepOrder: &stepOrder,
-	}
-
+	hook := &logStreamHook{client: e.client, runnerID: e.cfg.RunnerID, jobID: job.ID}
+	stopLogs := make(chan struct{})
+	logsDone := make(chan struct{})
+	go func() {
+		defer close(logsDone)
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopLogs:
+				return
+			case <-ticker.C:
+				if err := hook.Flush(); err != nil {
+					log.Printf("[Executor] Log flush: %v", err)
+				}
+			}
+		}
+	}()
+	defer func() { close(stopLogs); <-logsDone }()
 	logger := go_log.New()
 	logger.SetLevel(go_log.DebugLevel)
 	logger.AddHook(hook)
@@ -168,33 +190,38 @@ func (e *Executor) runWithAct(
 		return nil, fmt.Errorf("failed to parse workflow YAML: %w", err)
 	}
 
-	plan, err := planner.PlanJob(job.Name)
+	var plan *model.Plan
+	if job.WorkflowDefinition["executionMode"] == "workflow" {
+		plan, err = planner.PlanAll()
+	} else {
+		plan, err = planner.PlanJob(job.Name)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to create job execution plan: %w", err)
+		return nil, fmt.Errorf("failed to create execution plan: %w", err)
 	}
 	if plan == nil || len(plan.Stages) == 0 {
-		plan, err = planner.PlanAll()
-		if err != nil {
-			return nil, fmt.Errorf("failed to create fallback execution plan: %w", err)
-		}
+		return nil, errors.New("assigned workflow has no executable jobs")
 	}
 
 	// Build runner config
 	runnerCfg := &runner.Config{
-		Actor:           "runner",
-		Workdir:         repoDir,
-		EventName:       job.EventName,
-		EventPath:       eventPath,
-		DefaultBranch:   job.Branch,
-		ReuseContainers: false,
-		ForcePull:       false,
-		LogOutput:       true,
-		JSONLogger:      false,
-		Env:             map[string]string{},
-		Secrets:         map[string]string{},
-		Platforms:       map[string]string{},
-		AutoRemove:      true,
-		UseGitIgnore:    true,
+		Actor:                      "runner",
+		GitHubInstance:             "github.com",
+		RemoteName:                 "origin",
+		Workdir:                    repoDir,
+		EventName:                  job.EventName,
+		EventPath:                  eventPath,
+		DefaultBranch:              job.Branch,
+		ReuseContainers:            false,
+		ForcePull:                  false,
+		ErrorOnUnsupportedPlatform: true,
+		LogOutput:                  true,
+		JSONLogger:                 false,
+		Env:                        map[string]string{},
+		Secrets:                    map[string]string{},
+		Platforms:                  map[string]string{"ubuntu-latest": e.cfg.JobImage, "ubuntu-24.04": e.cfg.JobImage, "ubuntu-22.04": e.cfg.JobImage, "self-hosted": e.cfg.JobImage},
+		AutoRemove:                 true,
+		UseGitIgnore:               true,
 	}
 
 	r, err := runner.New(runnerCfg)
@@ -209,33 +236,14 @@ func (e *Executor) runWithAct(
 	runCtx := runner.WithJobLoggerFactory(ctx, jobLoggerFactory)
 
 	runErr := executor(runCtx)
-
-	// Build step results
-	var results []StepResult
-	for i, name := range stepOrder {
-		buf := stepLogs[name]
-		logOut := ""
-		if buf != nil {
-			logOut = buf.String()
-		}
-		exitCode := 0
-		if runErr != nil {
-			exitCode = 1
-		}
-		status := "completed"
-		if runErr != nil && i == len(stepOrder)-1 {
-			status = "failed"
-		}
-		results = append(results, StepResult{
-			Name:      name,
-			Number:    i + 1,
-			Status:    status,
-			ExitCode:  exitCode,
-			LogOutput: logOut,
-		})
+	if errors.Is(context.Cause(ctx), errAssignmentCancelled) {
+		return nil, errAssignmentCancelled
 	}
 
-	return results, runErr
+	if err := hook.Flush(); err != nil {
+		runErr = errors.Join(runErr, fmt.Errorf("flush logs: %w", err))
+	}
+	return hook.Results(runErr), runErr
 }
 
 func (e *Executor) failJob(job *JobPayload, reason string) error {
@@ -258,46 +266,9 @@ type jobLoggerFactory struct {
 }
 
 func (f *jobLoggerFactory) WithJobLogger() *go_log.Logger {
-	return f.logger
-}
-
-// logStreamHook captures logrus entries and streams them to the API.
-type logStreamHook struct {
-	client    *APIClient
-	runnerID  string
-	jobID     string
-	stepLogs  map[string]*bytes.Buffer
-	stepOrder *[]string
-	stepNum   int
-}
-
-func (h *logStreamHook) Levels() []go_log.Level {
-	return go_log.AllLevels
-}
-
-func (h *logStreamHook) Fire(entry *go_log.Entry) error {
-	stepName, _ := entry.Data["step"].(string)
-	if stepName == "" {
-		stepName = "run"
-	}
-
-	msg := fmt.Sprintf("[%s] %s\n", time.Now().Format("15:04:05"), entry.Message)
-
-	// Accumulate in buffer
-	if _, exists := h.stepLogs[stepName]; !exists {
-		h.stepLogs[stepName] = &bytes.Buffer{}
-		*h.stepOrder = append(*h.stepOrder, stepName)
-		h.stepNum++
-		// Report step start
-		_ = h.client.ReportProgress(h.runnerID, h.jobID, stepName, h.stepNum, "in_progress", "", nil)
-	}
-	h.stepLogs[stepName].WriteString(msg)
-
-	// Stream chunk to API (best-effort, non-blocking via goroutine)
-	stepNum := h.stepNum
-	go func() {
-		_ = h.client.ReportProgress(h.runnerID, h.jobID, stepName, stepNum, "in_progress", msg, nil)
-	}()
-
-	return nil
+	logger := go_log.New()
+	logger.SetLevel(f.logger.GetLevel())
+	logger.SetOutput(io.Discard)
+	logger.ReplaceHooks(f.logger.Hooks)
+	return logger
 }

@@ -13,6 +13,7 @@ import { config } from '../config';
 type RateLimitContext = Context<{ Variables: AuthVariables }>;
 
 export type RateLimitTier =
+  | 'runner'
   | 'general'
   | 'auth'
   | 'write'
@@ -29,6 +30,7 @@ interface RateLimitConfig {
 }
 
 const RATE_LIMIT_CONFIGS: Record<RateLimitTier, RateLimitConfig> = {
+  runner: { keyPrefix: "rl_runner", points: 600, duration: 60, blockDuration: 0 },
   ingress: {
     keyPrefix: 'rl_ingress',
     points: config.rateLimit.ingress,
@@ -117,6 +119,7 @@ export function resolveRateLimitTier(c: RateLimitContext): RateLimitTier | null 
   const path = c.req.path;
   const method = c.req.method;
   if (isExcludedPath(path)) return null;
+  if (path.startsWith('/api/runners/') && c.get('runner')) return 'runner';
   if (isInternalRequest(c)) return null;
   // Session reads must not consume the small authentication attempt budget.
   if (path.startsWith('/api/auth/') && method !== 'GET' && method !== 'HEAD') return 'auth';
@@ -138,6 +141,7 @@ function isInternalRequest(c: RateLimitContext): boolean {
 }
 
 export function getRateLimitKey(c: RateLimitContext, tier: RateLimitTier): string {
+  if (tier === 'runner') return 'runner:' + c.get('runner')!.id;
   if (tier === 'auth' || tier === 'unauth' || tier === 'ingress' || tier === 'public-write') {
     return getClientIp(c);
   }

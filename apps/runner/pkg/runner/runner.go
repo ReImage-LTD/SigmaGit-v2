@@ -41,6 +41,7 @@ type Config struct {
 	Token                              string                       // GitHub token
 	InsecureSecrets                    bool                         // switch hiding output when printing to terminal
 	Platforms                          map[string]string            // list of platforms
+	ErrorOnUnsupportedPlatform         bool                         // fail assignments instead of silently skipping unsupported jobs
 	Privileged                         bool                         // use privileged mode
 	UsernsMode                         string                       // user namespace to use
 	ContainerArchitecture              string                       // Desired OS/architecture platform for running containers

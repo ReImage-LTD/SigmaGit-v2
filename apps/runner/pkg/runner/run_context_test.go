@@ -512,6 +512,16 @@ func TestRunContextRunsOnPlatformNames(t *testing.T) {
 	assertObject.Equal([]string{}, rc.runsOnPlatformNames(context.Background()))
 }
 
+func TestRunContextRejectsUnsupportedAgentPlatform(t *testing.T) {
+	rc := createIfTestRunContext(map[string]*model.Job{
+		"job1": createJob(t, "runs-on: windows-latest", ""),
+	})
+	rc.Config.ErrorOnUnsupportedPlatform = true
+	enabled, err := rc.isEnabled(context.Background())
+	assert.False(t, enabled)
+	assert.ErrorContains(t, err, "unsupported runner platform")
+}
+
 func TestRunContextIsEnabled(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
 	assertObject := assert.New(t)

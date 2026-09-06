@@ -1,6 +1,7 @@
 import {
   db,
   repositories,
+  organizations,
   repositoryCollaborators,
   runners,
   users,
@@ -10,8 +11,8 @@ import {
 } from '@sigmagit/db';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../middleware/auth';
 import { requireRunnerAuth, type RunnerVariables } from '../middleware/runner-auth';
+import { and, eq, isNull, asc, or, inArray, ne } from 'drizzle-orm';
 import { formatZodError } from '../middleware/validate';
-import { and, eq, isNull, asc, or } from 'drizzle-orm';
 import { logSecurityEvent } from '../security/audit';
 import { secureCompare } from '../security/secrets';
 import { notifyUsers } from '../websocket';
@@ -98,95 +99,122 @@ app.post('/api/runners/register', async (c) => {
 
 app.post('/api/runners/:runnerId/heartbeat', requireRunnerAuth, async (c) => {
   const runner = c.get('runner');
+  const parsed = z
+    .object({ jobId: z.string().uuid().optional() })
+    .strict()
+    .safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: 'Invalid heartbeat' }, 400);
   const now = new Date();
-
-  // Update heartbeat
-  await db
-    .update(runners)
-    .set({ lastSeenAt: now, updatedAt: now })
-    .where(eq(runners.id, runner.id));
-
-  // Atomically claim next queued job (conditional update prevents double-assign)
-  const [nextJob] = await db
-    .select({ id: workflowJobs.id })
-    .from(workflowJobs)
-    .where(and(eq(workflowJobs.status, 'queued'), isNull(workflowJobs.runnerId)))
-    .orderBy(asc(workflowJobs.createdAt))
-    .limit(1);
-
-  let job: {
-    id: string;
-    runId: string;
-    name: string;
-    workflowDefinition: unknown;
-  } | null = null;
-
-  if (nextJob) {
-    const [claimed] = await db
+  const result = await db.transaction(async (tx) => {
+    const [lockedRunner] = await tx
+      .select({ id: runners.id })
+      .from(runners)
+      .where(eq(runners.id, runner.id))
+      .for('update');
+    if (!lockedRunner) return null;
+    await tx
+      .update(runners)
+      .set({ lastSeenAt: now, updatedAt: now })
+      .where(eq(runners.id, runner.id));
+    const activeConditions = or(
+      eq(workflowJobs.status, 'assigned'),
+      eq(workflowJobs.status, 'in_progress'),
+    );
+    if (parsed.data.jobId) {
+      const [active] = await tx
+        .select({ id: workflowJobs.id })
+        .from(workflowJobs)
+        .where(
+          and(
+            eq(workflowJobs.id, parsed.data.jobId),
+            eq(workflowJobs.runnerId, runner.id),
+            activeConditions,
+          ),
+        )
+        .limit(1);
+      return { job: null, cancelled: !active };
+    }
+    const [existing] = await tx
+      .select()
+      .from(workflowJobs)
+      .where(and(eq(workflowJobs.runnerId, runner.id), activeConditions))
+      .limit(1);
+    const [next] = existing
+      ? [existing]
+      : await tx
+          .select()
+          .from(workflowJobs)
+          .where(
+            and(
+              eq(workflowJobs.status, 'queued'),
+              isNull(workflowJobs.runnerId),
+              inArray(
+                workflowJobs.runId,
+                tx
+                  .select({ id: workflowRuns.id })
+                  .from(workflowRuns)
+                  .where(ne(workflowRuns.status, 'completed')),
+              ),
+            ),
+          )
+          .orderBy(asc(workflowJobs.createdAt))
+          .limit(1)
+          .for('update', { skipLocked: true });
+    if (!next) {
+      await tx
+        .update(runners)
+        .set({ status: 'online', currentJobId: null })
+        .where(eq(runners.id, runner.id));
+      return { job: null };
+    }
+    const [run] = await tx
+      .select({
+        id: workflowRuns.id,
+        status: workflowRuns.status,
+        commitSha: workflowRuns.commitSha,
+        branch: workflowRuns.branch,
+        eventName: workflowRuns.eventName,
+        eventPayload: workflowRuns.eventPayload,
+        repoOwner: users.username,
+        orgName: organizations.name,
+        repoName: repositories.name,
+      })
+      .from(workflowRuns)
+      .innerJoin(repositories, eq(repositories.id, workflowRuns.repositoryId))
+      .innerJoin(users, eq(users.id, repositories.ownerId))
+      .leftJoin(organizations, eq(organizations.id, repositories.organizationId))
+      .where(eq(workflowRuns.id, next.runId))
+      .limit(1);
+    if (!run || run.status === 'completed') return { job: null };
+    await tx
       .update(workflowJobs)
       .set({ runnerId: runner.id, status: 'assigned', startedAt: now })
-      .where(
-        and(
-          eq(workflowJobs.id, nextJob.id),
-          eq(workflowJobs.status, 'queued'),
-          isNull(workflowJobs.runnerId),
-        ),
-      )
-      .returning({
-        id: workflowJobs.id,
-        runId: workflowJobs.runId,
-        name: workflowJobs.name,
-        workflowDefinition: workflowJobs.workflowDefinition,
-      });
-    job = claimed ?? null;
-  }
-
-  if (!job) {
-    await db
+      .where(eq(workflowJobs.id, next.id));
+    await tx
+      .update(workflowRuns)
+      .set({ status: 'in_progress', startedAt: now })
+      .where(and(eq(workflowRuns.id, next.runId), eq(workflowRuns.status, 'queued')));
+    await tx
       .update(runners)
-      .set({ status: 'online', currentJobId: null, updatedAt: now })
+      .set({ status: 'busy', currentJobId: next.id })
       .where(eq(runners.id, runner.id));
-    return c.json({ job: null });
-  }
-
-  await db
-    .update(runners)
-    .set({ status: 'busy', currentJobId: job.id, updatedAt: now })
-    .where(eq(runners.id, runner.id));
-
-  // Fetch run context for the job
-  const [run] = await db
-    .select({
-      commitSha: workflowRuns.commitSha,
-      branch: workflowRuns.branch,
-      eventName: workflowRuns.eventName,
-      eventPayload: workflowRuns.eventPayload,
-      repositoryId: workflowRuns.repositoryId,
-      repoOwner: users.username,
-      repoName: repositories.name,
-    })
-    .from(workflowRuns)
-    .innerJoin(repositories, eq(repositories.id, workflowRuns.repositoryId))
-    .innerJoin(users, eq(users.id, repositories.ownerId))
-    .where(eq(workflowRuns.id, job.runId))
-    .limit(1);
-
-  console.log(`[Runners] Assigned job ${job.id} (${job.name}) to runner ${runner.id}`);
-
-  return c.json({
-    job: {
-      id: job.id,
-      runId: job.runId,
-      name: job.name,
-      workflowDefinition: job.workflowDefinition,
-      commitSha: run?.commitSha ?? '',
-      branch: run?.branch ?? '',
-      eventName: run?.eventName ?? 'push',
-      eventPayload: run?.eventPayload ?? {},
-      repoOwner: run?.repoOwner ?? '',
-      repoName: run?.repoName ?? '',
-    },
+    return {
+      job: {
+        id: next.id,
+        runId: next.runId,
+        name: next.name,
+        workflowDefinition: next.workflowDefinition,
+        commitSha: run.commitSha,
+        branch: run.branch,
+        eventName: run.eventName,
+        eventPayload: run.eventPayload,
+        repoOwner: run.orgName ?? run.repoOwner,
+        repoName: run.repoName,
+      },
+    };
   });
+  if (!result) return c.json({ error: 'Runner not found' }, 401);
+  return c.json(result);
 });
 
 const MAX_STEP_LOG_BYTES = 1 * 1024 * 1024; // 1MB cumulative log per step
@@ -233,74 +261,83 @@ app.post('/api/runners/:runnerId/jobs/:jobId/progress', requireRunnerAuth, async
   if (!parsed.success) return c.json({ error: formatZodError(parsed.error) }, 400);
   const { stepName, stepNumber, status, logChunk, exitCode } = parsed.data;
 
-  // Ensure this job is assigned to the authenticated runner.
-  const [ownedJob] = await db
-    .select({ id: workflowJobs.id, runnerId: workflowJobs.runnerId, status: workflowJobs.status })
-    .from(workflowJobs)
-    .where(eq(workflowJobs.id, jobId))
-    .limit(1);
-  if (!ownedJob || ownedJob.runnerId !== runner.id) {
-    return c.json({ error: 'Job not found' }, 404);
-  }
-  if (ownedJob.status !== 'assigned' && ownedJob.status !== 'in_progress') {
-    return c.json({ error: 'Job is not accepting progress updates' }, 409);
-  }
-  if (logChunk != null && Buffer.byteLength(logChunk, 'utf8') > MAX_LOG_CHUNK_BYTES) {
-    return c.json({ error: 'logChunk too large' }, 413);
-  }
-
-  const now = new Date();
-
-  // Mark job as in_progress if needed
-  const progressed = await db
-    .update(workflowJobs)
-    .set({ status: 'in_progress' })
-    .where(
-      and(
-        eq(workflowJobs.id, jobId),
-        eq(workflowJobs.runnerId, runner.id),
-        or(eq(workflowJobs.status, 'assigned'), eq(workflowJobs.status, 'in_progress')),
-      ),
-    )
-    .returning({ id: workflowJobs.id });
-  if (progressed.length !== 1) return c.json({ error: 'Job state changed' }, 409);
-
-  // Upsert step record
-  if (stepName && stepNumber != null) {
-    const existingStep = await db.query.workflowSteps.findFirst({
-      where: and(eq(workflowSteps.jobId, jobId), eq(workflowSteps.number, stepNumber)),
-    });
-
-    if (existingStep) {
-      let nextLog = existingStep.logOutput ?? '';
-      if (logChunk) {
-        nextLog = nextLog + logChunk;
-        if (Buffer.byteLength(nextLog, 'utf8') > MAX_STEP_LOG_BYTES) {
-          return c.json({ error: 'Step log limit exceeded' }, 413);
-        }
-      }
-      await db
-        .update(workflowSteps)
-        .set({
-          status: (status as any) ?? existingStep.status,
-          exitCode: exitCode ?? existingStep.exitCode,
-          logOutput: logChunk ? nextLog : existingStep.logOutput,
-          ...(status === 'in_progress' && !existingStep.startedAt ? { startedAt: now } : {}),
-          ...(status === 'completed' || status === 'failed' ? { completedAt: now } : {}),
-        })
-        .where(eq(workflowSteps.id, existingStep.id));
-    } else {
-      await db.insert(workflowSteps).values({
-        jobId,
-        number: stepNumber,
-        name: stepName,
-        status: (status as any) ?? 'in_progress',
-        exitCode: exitCode ?? null,
-        logOutput: logChunk ?? null,
-        startedAt: status === 'in_progress' ? now : null,
-      });
+  const failure = await db.transaction(async (tx) => {
+    // Ensure this job is assigned to the authenticated runner.
+    const [ownedJob] = await tx
+      .select({
+        id: workflowJobs.id,
+        runnerId: workflowJobs.runnerId,
+        status: workflowJobs.status,
+        conclusion: workflowJobs.conclusion,
+      })
+      .from(workflowJobs)
+      .where(eq(workflowJobs.id, jobId))
+      .limit(1)
+      .for('update');
+    if (!ownedJob || ownedJob.runnerId !== runner.id) {
+      return c.json({ error: 'Job not found' }, 404);
     }
-  }
+    if (ownedJob.status !== 'assigned' && ownedJob.status !== 'in_progress') {
+      return c.json({ error: 'Job is not accepting progress updates' }, 409);
+    }
+    if (logChunk != null && Buffer.byteLength(logChunk, 'utf8') > MAX_LOG_CHUNK_BYTES) {
+      return c.json({ error: 'logChunk too large' }, 413);
+    }
+
+    const now = new Date();
+
+    // Mark job as in_progress if needed
+    const progressed = await tx
+      .update(workflowJobs)
+      .set({ status: 'in_progress' })
+      .where(
+        and(
+          eq(workflowJobs.id, jobId),
+          eq(workflowJobs.runnerId, runner.id),
+          or(eq(workflowJobs.status, 'assigned'), eq(workflowJobs.status, 'in_progress')),
+        ),
+      )
+      .returning({ id: workflowJobs.id });
+    if (progressed.length !== 1) return c.json({ error: 'Job state changed' }, 409);
+
+    // Upsert step record
+    if (stepName && stepNumber != null) {
+      const existingStep = await tx.query.workflowSteps.findFirst({
+        where: and(eq(workflowSteps.jobId, jobId), eq(workflowSteps.number, stepNumber)),
+      });
+
+      if (existingStep) {
+        let nextLog = existingStep.logOutput ?? '';
+        if (logChunk) {
+          nextLog = nextLog + logChunk;
+          if (Buffer.byteLength(nextLog, 'utf8') > MAX_STEP_LOG_BYTES) {
+            return c.json({ error: 'Step log limit exceeded' }, 413);
+          }
+        }
+        await tx
+          .update(workflowSteps)
+          .set({
+            status: status ?? existingStep.status,
+            exitCode: exitCode ?? existingStep.exitCode,
+            logOutput: logChunk ? nextLog : existingStep.logOutput,
+            ...(status === 'in_progress' && !existingStep.startedAt ? { startedAt: now } : {}),
+            ...(status === 'completed' || status === 'failed' ? { completedAt: now } : {}),
+          })
+          .where(eq(workflowSteps.id, existingStep.id));
+      } else {
+        await tx.insert(workflowSteps).values({
+          jobId,
+          number: stepNumber,
+          name: stepName,
+          status: status ?? 'in_progress',
+          exitCode: exitCode ?? null,
+          logOutput: logChunk ?? null,
+          startedAt: status === 'in_progress' ? now : null,
+        });
+      }
+    }
+  });
+  if (failure) return failure;
 
   // Notify subscribed users via WebSocket (best-effort); include repoOwner/repoName/runId for client cache invalidation
   try {
@@ -357,82 +394,97 @@ app.post('/api/runners/:runnerId/jobs/:jobId/complete', requireRunnerAuth, async
   if (!parsed.success) return c.json({ error: formatZodError(parsed.error) }, 400);
   const { status, conclusion, steps } = parsed.data;
 
-  // Ensure this job is assigned to the authenticated runner.
-  const [ownedJob] = await db
-    .select({ id: workflowJobs.id, runnerId: workflowJobs.runnerId, status: workflowJobs.status })
-    .from(workflowJobs)
-    .where(eq(workflowJobs.id, jobId))
-    .limit(1);
-  if (!ownedJob || ownedJob.runnerId !== runner.id) {
-    return c.json({ error: 'Job not found' }, 404);
-  }
-  if (ownedJob.status !== 'assigned' && ownedJob.status !== 'in_progress') {
-    return c.json({ error: 'Job is already terminal' }, 409);
-  }
-  if (
-    steps?.some(
-      (step) => step.logOutput && Buffer.byteLength(step.logOutput, 'utf8') > MAX_STEP_LOG_BYTES,
-    )
-  ) {
-    return c.json({ error: 'Step log limit exceeded' }, 413);
-  }
-
   const now = new Date();
+  const failure = await db.transaction(async (tx) => {
+    await tx
+      .select({ id: runners.id })
+      .from(runners)
+      .where(eq(runners.id, runner.id))
+      .for('update');
+    // Ensure this job is assigned to the authenticated runner.
+    const [ownedJob] = await tx
+      .select({
+        id: workflowJobs.id,
+        runnerId: workflowJobs.runnerId,
+        status: workflowJobs.status,
+        conclusion: workflowJobs.conclusion,
+      })
+      .from(workflowJobs)
+      .where(eq(workflowJobs.id, jobId))
+      .limit(1)
+      .for('update');
+    if (!ownedJob || ownedJob.runnerId !== runner.id) {
+      return c.json({ error: 'Job not found' }, 404);
+    }
+    if (ownedJob.status !== 'assigned' && ownedJob.status !== 'in_progress') {
+      return ownedJob.status === status && ownedJob.conclusion === (conclusion ?? null)
+        ? undefined
+        : c.json({ error: 'Job is already terminal' }, 409);
+    }
+    if (
+      steps?.some(
+        (step) => step.logOutput && Buffer.byteLength(step.logOutput, 'utf8') > MAX_STEP_LOG_BYTES,
+      )
+    ) {
+      return c.json({ error: 'Step log limit exceeded' }, 413);
+    }
 
-  // Update job
-  const completed = await db
-    .update(workflowJobs)
-    .set({
-      status,
-      conclusion: conclusion ?? null,
-      completedAt: now,
-    })
-    .where(
-      and(
-        eq(workflowJobs.id, jobId),
-        eq(workflowJobs.runnerId, runner.id),
-        or(eq(workflowJobs.status, 'assigned'), eq(workflowJobs.status, 'in_progress')),
-      ),
-    )
-    .returning({ id: workflowJobs.id });
-  if (completed.length !== 1) return c.json({ error: 'Job state changed' }, 409);
+    // Update job
+    const completed = await tx
+      .update(workflowJobs)
+      .set({
+        status,
+        conclusion: conclusion ?? null,
+        completedAt: now,
+      })
+      .where(
+        and(
+          eq(workflowJobs.id, jobId),
+          eq(workflowJobs.runnerId, runner.id),
+          or(eq(workflowJobs.status, 'assigned'), eq(workflowJobs.status, 'in_progress')),
+        ),
+      )
+      .returning({ id: workflowJobs.id });
+    if (completed.length !== 1) return c.json({ error: 'Job state changed' }, 409);
 
-  // Bulk upsert step records
-  if (steps && steps.length > 0) {
-    for (const step of steps) {
-      const existing = await db.query.workflowSteps.findFirst({
-        where: and(eq(workflowSteps.jobId, jobId), eq(workflowSteps.number, step.number)),
-      });
-
-      if (existing) {
-        await db
-          .update(workflowSteps)
-          .set({
-            status: (step.status as any) ?? 'completed',
-            exitCode: step.exitCode ?? existing.exitCode,
-            logOutput: step.logOutput ?? existing.logOutput,
-            completedAt: now,
-          })
-          .where(eq(workflowSteps.id, existing.id));
-      } else {
-        await db.insert(workflowSteps).values({
-          jobId,
-          number: step.number,
-          name: step.name,
-          status: (step.status as any) ?? 'completed',
-          exitCode: step.exitCode ?? null,
-          logOutput: step.logOutput ?? null,
-          completedAt: now,
+    // Bulk upsert step records
+    if (steps && steps.length > 0) {
+      for (const step of steps) {
+        const existing = await tx.query.workflowSteps.findFirst({
+          where: and(eq(workflowSteps.jobId, jobId), eq(workflowSteps.number, step.number)),
         });
+
+        if (existing) {
+          await tx
+            .update(workflowSteps)
+            .set({
+              status: step.status ?? 'completed',
+              exitCode: step.exitCode ?? existing.exitCode,
+              logOutput: step.logOutput ?? existing.logOutput,
+              completedAt: now,
+            })
+            .where(eq(workflowSteps.id, existing.id));
+        } else {
+          await tx.insert(workflowSteps).values({
+            jobId,
+            number: step.number,
+            name: step.name,
+            status: step.status ?? 'completed',
+            exitCode: step.exitCode ?? null,
+            logOutput: step.logOutput ?? null,
+            completedAt: now,
+          });
+        }
       }
     }
-  }
 
-  // Clear runner state
-  await db
-    .update(runners)
-    .set({ status: 'online', currentJobId: null, updatedAt: now })
-    .where(eq(runners.id, runner.id));
+    // Clear runner state
+    await tx
+      .update(runners)
+      .set({ status: 'online', currentJobId: null, updatedAt: now })
+      .where(eq(runners.id, runner.id));
+  });
+  if (failure) return failure;
 
   // Check if all jobs in the run are done → finalize workflow_runs
   const [job] = await db
@@ -491,38 +543,44 @@ app.post('/api/runners/:runnerId/jobs/:jobId/complete', requireRunnerAuth, async
   return c.json({ success: true });
 });
 
-async function finalizeRunIfComplete(runId: string, now: Date) {
-  const allJobs = await db
-    .select({ status: workflowJobs.status, conclusion: workflowJobs.conclusion })
-    .from(workflowJobs)
-    .where(eq(workflowJobs.runId, runId));
+export async function finalizeRunIfComplete(runId: string, now: Date) {
+  await db.transaction(async (tx) => {
+    const [run] = await tx
+      .select({ status: workflowRuns.status })
+      .from(workflowRuns)
+      .where(eq(workflowRuns.id, runId))
+      .for('update');
+    if (!run || run.status === 'completed') return;
+    const allJobs = await tx
+      .select({ status: workflowJobs.status, conclusion: workflowJobs.conclusion })
+      .from(workflowJobs)
+      .where(eq(workflowJobs.runId, runId));
 
-  const pending = allJobs.filter(
-    (j) => j.status === 'queued' || j.status === 'assigned' || j.status === 'in_progress',
-  );
+    const pending = allJobs.filter(
+      (j) => j.status === 'queued' || j.status === 'assigned' || j.status === 'in_progress',
+    );
 
-  if (pending.length > 0) return;
+    if (pending.length > 0) return;
 
-  const anyFailed = allJobs.some((j) => j.conclusion === 'failure' || j.status === 'failed');
-  const anyCancelled = allJobs.some(
-    (j) => j.conclusion === 'cancelled' || j.status === 'cancelled',
-  );
+    const anyFailed = allJobs.some((j) => j.conclusion === 'failure' || j.status === 'failed');
+    const anyCancelled = allJobs.some(
+      (j) => j.conclusion === 'cancelled' || j.status === 'cancelled',
+    );
 
-  await db
-    .update(workflowRuns)
-    .set({
-      status: 'completed',
-      conclusion: anyFailed ? 'failure' : anyCancelled ? 'cancelled' : 'success',
-      completedAt: now,
-    })
-    .where(eq(workflowRuns.id, runId));
+    await tx
+      .update(workflowRuns)
+      .set({
+        status: 'completed',
+        conclusion: anyFailed ? 'failure' : anyCancelled ? 'cancelled' : 'success',
+        completedAt: now,
+      })
+      .where(eq(workflowRuns.id, runId));
+  });
 }
 
 // ─── Admin endpoints ───────────────────────────────────────────────────────────
 
-app.use('/api/runners', requireAdmin);
-
-app.get('/api/runners', async (c) => {
+app.get('/api/runners', requireAdmin, async (c) => {
   const rows = await db
     .select({
       id: runners.id,
@@ -603,17 +661,24 @@ app.delete('/api/runners/:runnerId', authMiddleware, requireAdmin, async (c) => 
   const now = new Date();
 
   // Fail any active jobs
-  await db
-    .update(workflowJobs)
-    .set({ status: 'failed', conclusion: 'failure', completedAt: now })
-    .where(
-      and(
-        eq(workflowJobs.runnerId, runnerId),
-        or(eq(workflowJobs.status, 'assigned'), eq(workflowJobs.status, 'in_progress')),
-      ),
-    );
+  const failedJobs = await db.transaction(async (tx) => {
+    await tx.select({ id: runners.id }).from(runners).where(eq(runners.id, runnerId)).for('update');
+    const failed = await tx
+      .update(workflowJobs)
+      .set({ status: 'failed', conclusion: 'failure', completedAt: now })
+      .where(
+        and(
+          eq(workflowJobs.runnerId, runnerId),
+          or(eq(workflowJobs.status, 'assigned'), eq(workflowJobs.status, 'in_progress')),
+        ),
+      )
+      .returning({ runId: workflowJobs.runId });
+    await tx.delete(runners).where(eq(runners.id, runnerId));
+    return failed;
+  });
 
-  await db.delete(runners).where(eq(runners.id, runnerId));
+  for (const runId of new Set(failedJobs.map((job) => job.runId)))
+    await finalizeRunIfComplete(runId, now);
 
   return c.json({ success: true });
 });

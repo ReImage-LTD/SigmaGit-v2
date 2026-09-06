@@ -20,70 +20,6 @@ interface TriggerOptions {
   workflowId?: string;
 }
 
-/**
- * Very minimal YAML job parser — extracts top-level `jobs:` keys and their
- * definitions from a GitHub Actions workflow YAML string.
- */
-function parseJobsFromYaml(content: string): Array<{ name: string; definition: Record<string, unknown> }> {
-  const jobs: Array<{ name: string; definition: Record<string, unknown> }> = [];
-  const lines = content.split('\n');
-
-  let inJobs = false;
-  let currentJob: string | null = null;
-  let jobLines: string[] = [];
-  let jobIndent = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trimStart();
-    const indent = line.length - trimmed.length;
-
-    if (indent === 0 && trimmed.startsWith('jobs:')) {
-      inJobs = true;
-      jobIndent = 2;
-      continue;
-    }
-
-    if (inJobs) {
-      // Another top-level key — end of jobs
-      if (indent === 0 && trimmed && !trimmed.startsWith('#')) {
-        if (currentJob) {
-          jobs.push({ name: currentJob, definition: { _yaml: jobLines.join('\n') } });
-          currentJob = null;
-          jobLines = [];
-        }
-        inJobs = false;
-        continue;
-      }
-
-      // A new job key at indent=2
-      if (indent === jobIndent && trimmed && !trimmed.startsWith('#')) {
-        if (currentJob) {
-          jobs.push({ name: currentJob, definition: { _yaml: jobLines.join('\n') } });
-          jobLines = [];
-        }
-        currentJob = trimmed.replace(/:.*/, '').trim();
-        continue;
-      }
-
-      if (currentJob) {
-        jobLines.push(line);
-      }
-    }
-  }
-
-  if (currentJob) {
-    jobs.push({ name: currentJob, definition: { _yaml: jobLines.join('\n') } });
-  }
-
-  // Default to a single "build" job if none found
-  if (jobs.length === 0) {
-    jobs.push({ name: 'build', definition: {} });
-  }
-
-  return jobs;
-}
-
 function branchMatches(branch: string, patterns: string[] | undefined): boolean {
   if (!patterns || patterns.length === 0) return true;
   return patterns.some((pattern) => {
@@ -94,20 +30,30 @@ function branchMatches(branch: string, patterns: string[] | undefined): boolean 
 }
 
 export async function triggerWorkflows(options: TriggerOptions): Promise<string[]> {
-  const { repoId, branch, commitSha, eventName, eventPayload = {}, triggeredBy, workflowId } = options;
+  const {
+    repoId,
+    branch,
+    commitSha,
+    eventName,
+    eventPayload = {},
+    triggeredBy,
+    workflowId,
+  } = options;
 
   const runIds: string[] = [];
 
   try {
     // Query active workflows for this repo
     const query = workflowId
-      ? [await db.query.workflows.findFirst({
-          where: and(
-            eq(workflows.id, workflowId),
-            eq(workflows.repositoryId, repoId),
-            eq(workflows.active, true)
-          ),
-        })]
+      ? [
+          await db.query.workflows.findFirst({
+            where: and(
+              eq(workflows.id, workflowId),
+              eq(workflows.repositoryId, repoId),
+              eq(workflows.active, true),
+            ),
+          }),
+        ]
       : await db.query.workflows.findMany({
           where: and(eq(workflows.repositoryId, repoId), eq(workflows.active, true)),
         });
@@ -130,40 +76,49 @@ export async function triggerWorkflows(options: TriggerOptions): Promise<string[
         if (!triggers.workflow_dispatch) continue;
       }
 
-      // Create workflow run
-      const [run] = await db
-        .insert(workflowRuns)
-        .values({
-          workflowId: workflow.id,
-          repositoryId: repoId,
-          triggeredBy: triggeredBy ?? null,
-          commitSha,
-          branch,
-          eventName,
-          eventPayload,
-          status: 'queued',
-        })
-        .returning({ id: workflowRuns.id });
-
-      runIds.push(run.id);
-
-      // Parse jobs from workflow YAML and create job rows
-      const jobs = parseJobsFromYaml(workflow.content);
-      for (const job of jobs) {
-        await db.insert(workflowJobs).values({
-          runId: run.id,
-          name: job.name,
+      const parsed: unknown = Bun.YAML.parse(workflow.content);
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        !('jobs' in parsed) ||
+        !parsed.jobs ||
+        typeof parsed.jobs !== 'object' ||
+        Object.keys(parsed.jobs).length === 0
+      ) {
+        throw new Error('Workflow has no jobs');
+      }
+      // Keep the DAG in one act execution: needs, outputs and matrices must
+      // share a planner rather than rerunning dependencies in separate agents.
+      const run = await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(workflowRuns)
+          .values({
+            workflowId: workflow.id,
+            repositoryId: repoId,
+            triggeredBy: triggeredBy ?? null,
+            commitSha,
+            branch,
+            eventName,
+            eventPayload,
+            status: 'queued',
+          })
+          .returning({ id: workflowRuns.id });
+        await tx.insert(workflowJobs).values({
+          runId: created.id,
+          name: workflow.name,
           workflowDefinition: {
-            ...job.definition,
+            executionMode: 'workflow',
             workflowContent: workflow.content,
             workflowPath: workflow.path,
           },
           status: 'queued',
         });
-      }
+        return created;
+      });
+      runIds.push(run.id);
 
       console.log(
-        `[Workflows] Triggered workflow "${workflow.name}" (run: ${run.id}) for ${eventName} on ${branch}`
+        `[Workflows] Triggered workflow "${workflow.name}" (run: ${run.id}) for ${eventName} on ${branch}`,
       );
     }
   } catch (err) {

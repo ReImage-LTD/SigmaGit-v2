@@ -1,3 +1,4 @@
+import { canRunnerReadRepository } from '../lib/runner-git-access';
 import { applyDelta } from '../lib/git-delta';
 import { applyRefUpdates, type GitRefUpdate } from '../lib/git-ref-updates';
 import { Hono } from "hono";
@@ -206,7 +207,7 @@ app.get("/:owner/:name/info/refs", async (c) => {
       return unauthorizedBasic();
     }
   } else {
-    if (!(await canReadRepository(repo, currentUser))) {
+    if (!(await canReadRepository(repo, currentUser)) && !(await canRunnerReadRepository(repo.id, c.req.header("authorization")))) {
       return unauthorizedBasic();
     }
   }
@@ -244,7 +245,7 @@ app.post("/:owner/:name/git-upload-pack", async (c) => {
 
   const store = createRepoGitStore(repo);
 
-  if (!(await canReadRepository(repo, currentUser))) {
+  if (!(await canReadRepository(repo, currentUser)) && !(await canRunnerReadRepository(repo.id, c.req.header("authorization")))) {
     return unauthorizedBasic();
   }
 

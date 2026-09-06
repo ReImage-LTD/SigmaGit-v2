@@ -816,6 +816,9 @@ func (rc *RunContext) isEnabled(ctx context.Context) (bool, error) {
 
 	img := rc.platformImage(ctx)
 	if img == "" {
+		if rc.Config.ErrorOnUnsupportedPlatform {
+			return false, fmt.Errorf("unsupported runner platform: %v", rc.runsOnPlatformNames(ctx))
+		}
 		for _, platformName := range rc.runsOnPlatformNames(ctx) {
 			l.Infof("\U0001F6A7  Skipping unsupported platform -- Try running with `-P %+v=...`", platformName)
 		}

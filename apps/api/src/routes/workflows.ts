@@ -1,12 +1,12 @@
-import { Hono } from 'hono';
 import { db, workflows, workflowRuns, workflowJobs, workflowSteps } from '@sigmagit/db';
-import { eq, and, desc, asc, inArray } from 'drizzle-orm';
 import { authMiddleware, requireAuth, type AuthVariables } from '../middleware/auth';
-import { parseLimit, parsePage } from '../lib/validation';
-import { canManageRepository } from '../lib/access';
 import { resolveRepositoryWithAccess } from '../lib/repo-helpers';
-import { syncWorkflows } from '../workflows/sync';
+import { eq, and, desc, asc, inArray, ne } from 'drizzle-orm';
+import { parseLimit, parsePage } from '../lib/validation';
 import { triggerWorkflows } from '../workflows/trigger';
+import { canManageRepository } from '../lib/access';
+import { syncWorkflows } from '../workflows/sync';
+import { Hono } from 'hono';
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -53,49 +53,55 @@ app.get('/api/repositories/:owner/:repo/workflows', async (c) => {
 
 // ─── Manual dispatch ───────────────────────────────────────────────────────────
 
-app.post('/api/repositories/:owner/:repo/workflows/:workflowId/dispatch', requireAuth, async (c) => {
-  const owner = c.req.param('owner');
-  const repo = c.req.param('repo');
-  const workflowId = c.req.param('workflowId');
-  const user = c.get('user')!;
+app.post(
+  '/api/repositories/:owner/:repo/workflows/:workflowId/dispatch',
+  requireAuth,
+  async (c) => {
+    const owner = c.req.param('owner');
+    const repo = c.req.param('repo');
+    const workflowId = c.req.param('workflowId');
+    const user = c.get('user')!;
 
-  const repoRow = await resolveRepositoryWithAccess(owner, repo, user);
-  if (!repoRow) return c.json({ error: 'Repository not found' }, 404);
-  if (!(await canManageRepository(repoRow, user))) return c.json({ error: 'Forbidden' }, 403);
+    const repoRow = await resolveRepositoryWithAccess(owner, repo, user);
+    if (!repoRow) return c.json({ error: 'Repository not found' }, 404);
+    if (!(await canManageRepository(repoRow, user))) return c.json({ error: 'Forbidden' }, 403);
 
-  const body = await c.req.json().catch(() => ({})) as {
-    ref?: string;
-    commitSha?: string;
-    inputs?: Record<string, string>;
-  };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      ref?: string;
+      commitSha?: string;
+      inputs?: Record<string, string>;
+    };
 
-  // Resolve commitSha from branch if not provided
-  let commitSha = body.commitSha ?? '';
-  const branch = body.ref ?? repoRow.defaultBranch;
+    // Resolve commitSha from branch if not provided
+    let commitSha = body.commitSha ?? '';
+    const branch = body.ref ?? repoRow.defaultBranch;
 
-  if (!commitSha) {
-    // Try to get HEAD of the branch from repoBranchMetadata
-    const { repoBranchMetadata } = await import('@sigmagit/db');
-    const [meta] = await db
-      .select({ headOid: repoBranchMetadata.headOid })
-      .from(repoBranchMetadata)
-      .where(and(eq(repoBranchMetadata.repoId, repoRow.id), eq(repoBranchMetadata.branch, branch)))
-      .limit(1);
-    commitSha = meta?.headOid ?? 'HEAD';
-  }
+    if (!commitSha) {
+      // Try to get HEAD of the branch from repoBranchMetadata
+      const { repoBranchMetadata } = await import('@sigmagit/db');
+      const [meta] = await db
+        .select({ headOid: repoBranchMetadata.headOid })
+        .from(repoBranchMetadata)
+        .where(
+          and(eq(repoBranchMetadata.repoId, repoRow.id), eq(repoBranchMetadata.branch, branch)),
+        )
+        .limit(1);
+      commitSha = meta?.headOid ?? 'HEAD';
+    }
 
-  const runIds = await triggerWorkflows({
-    repoId: repoRow.id,
-    branch,
-    commitSha,
-    eventName: 'workflow_dispatch',
-    eventPayload: { inputs: body.inputs ?? {} },
-    triggeredBy: user.id,
-    workflowId,
-  });
+    const runIds = await triggerWorkflows({
+      repoId: repoRow.id,
+      branch,
+      commitSha,
+      eventName: 'workflow_dispatch',
+      eventPayload: { inputs: body.inputs ?? {} },
+      triggeredBy: user.id,
+      workflowId,
+    });
 
-  return c.json({ runIds });
-});
+    return c.json({ runIds });
+  },
+);
 
 // ─── List runs ─────────────────────────────────────────────────────────────────
 
@@ -161,7 +167,7 @@ app.get('/api/repositories/:owner/:repo/runs/:runId', async (c) => {
     .orderBy(asc(workflowJobs.createdAt));
 
   const jobIds = jobs.map((j) => j.id);
-  const stepsByJobId = new Map<string, typeof workflowSteps.$inferSelect[]>();
+  const stepsByJobId = new Map<string, (typeof workflowSteps.$inferSelect)[]>();
   if (jobIds.length > 0) {
     const allSteps = await db
       .select()
@@ -199,8 +205,8 @@ app.get('/api/repositories/:owner/:repo/runs/:runId/jobs/:jobId/logs', async (c)
       and(
         eq(workflowJobs.id, jobId),
         eq(workflowRuns.id, runId),
-        eq(workflowRuns.repositoryId, repoRow.id)
-      )
+        eq(workflowRuns.repositoryId, repoRow.id),
+      ),
     )
     .limit(1);
 
@@ -234,16 +240,36 @@ app.post('/api/repositories/:owner/:repo/runs/:runId/cancel', requireAuth, async
 
   const now = new Date();
 
-  // Cancel queued/assigned jobs
-  await db
-    .update(workflowJobs)
-    .set({ status: 'cancelled', conclusion: 'cancelled', completedAt: now })
-    .where(and(eq(workflowJobs.runId, runId)));
+  const [ownedRun] = await db
+    .select({ id: workflowRuns.id })
+    .from(workflowRuns)
+    .where(and(eq(workflowRuns.id, runId), eq(workflowRuns.repositoryId, repoRow.id)))
+    .limit(1);
+  if (!ownedRun) return c.json({ error: 'Run not found' }, 404);
 
-  await db
-    .update(workflowRuns)
-    .set({ status: 'completed', conclusion: 'cancelled', completedAt: now })
-    .where(and(eq(workflowRuns.id, runId), eq(workflowRuns.repositoryId, repoRow.id)));
+  // Cancel queued/assigned jobs
+  await db.transaction(async (tx) => {
+    await tx
+      .update(workflowJobs)
+      .set({ status: 'cancelled', conclusion: 'cancelled', completedAt: now })
+      .where(
+        and(
+          eq(workflowJobs.runId, runId),
+          inArray(workflowJobs.status, ['queued', 'assigned', 'in_progress']),
+        ),
+      );
+
+    await tx
+      .update(workflowRuns)
+      .set({ status: 'completed', conclusion: 'cancelled', completedAt: now })
+      .where(
+        and(
+          eq(workflowRuns.id, runId),
+          eq(workflowRuns.repositoryId, repoRow.id),
+          ne(workflowRuns.status, 'completed'),
+        ),
+      );
+  });
 
   return c.json({ success: true });
 });

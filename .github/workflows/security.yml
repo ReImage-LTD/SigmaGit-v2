@@ -7,6 +7,35 @@ on:
   workflow_dispatch:
 
 jobs:
+  runner-integration:
+    name: Runner and API integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: runner-test-only
+          POSTGRES_DB: runner_e2e
+        ports:
+          - 55439:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: bun install --frozen-lockfile
+      - name: Runner unit tests
+        working-directory: apps/runner
+        run: go test ./cmd/agent -race -count=1
+      - name: Real API, Git, PostgreSQL and Docker round trip
+        run: bun run test:runner-integration
+        env:
+          RUNNER_TEST_DATABASE_URL: postgres://postgres:runner-test-only@127.0.0.1:55439/runner_e2e
+
   api-tests:
     name: API security tests
     runs-on: ubuntu-latest

@@ -1,3 +1,4 @@
+import { requireRunnerAuth } from './middleware/runner-auth';
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { config, getAllowedOrigins } from "./config";
@@ -106,6 +107,8 @@ app.use("*", createMiddleware(async (c, next) => {
 app.use("*", authMiddleware);
 app.use("*", csrfMiddleware);
 app.use("*", gitLimitsMiddleware);
+app.use("/api/runners/:runnerId/heartbeat", requireRunnerAuth);
+app.use("/api/runners/:runnerId/jobs/:jobId/*", requireRunnerAuth);
 app.use("*", rateLimitMiddleware);
 app.use("*", compressionMiddleware);
 app.use("*", responseSizeMiddleware);

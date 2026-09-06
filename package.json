@@ -19,6 +19,7 @@
     "lint": "turbo lint",
     "test": "bun run --filter @sigmagit/api test",
     "test:api": "cd apps/api && bun test src/test",
+    "test:runner-integration": "bun run apps/api/integration/runner-e2e.ts",
     "test:security": "cd apps/api && bun test src/test",
     "db:migrate:discord": "cd packages/db && bun run db:migrate:discord",
     "discord:register": "cd apps/discord-bot && bun run register",

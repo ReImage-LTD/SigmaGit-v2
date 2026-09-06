@@ -42,7 +42,7 @@ function isApplicationStatus(value: unknown): value is ApplicationStatus {
   return typeof value === "string" && APPLICATION_STATUSES.includes(value as ApplicationStatus);
 }
 
-app.use("*", requireAdmin);
+app.use("/api/admin/*", requireAdmin);
 
 export async function logAuditEvent(
   actorId: string,
