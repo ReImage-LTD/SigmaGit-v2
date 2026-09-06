@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Bell, CheckCircle2, Loader2, Settings } from "lucide-react";
 import {
   useMarkAllNotificationsRead,
@@ -16,7 +17,8 @@ import {
 import { cn } from "@/lib/utils";
 
 export function NotificationDropdown() {
-  const { data: notificationsData, isLoading } = useNotifications({ limit: 10 });
+  const [open, setOpen] = useState(false);
+  const { data: notificationsData, isLoading } = useNotifications({ limit: 10, enabled: open });
   const { data: unreadData } = useUnreadNotificationCount();
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllNotificationsRead();
@@ -25,7 +27,7 @@ export function NotificationDropdown() {
   const unreadCount = unreadData?.count || 0;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
