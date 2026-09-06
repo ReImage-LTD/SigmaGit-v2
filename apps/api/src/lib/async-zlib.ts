@@ -1,4 +1,10 @@
-import { deflate, gzip, inflate, inflateRaw } from 'node:zlib/promises';
+import { deflate as deflateCallback, gzip as gzipCallback, inflate as inflateCallback, inflateRaw as inflateRawCallback } from 'node:zlib';
+import { promisify } from 'node:util';
+
+const deflate = promisify(deflateCallback);
+const gzip = promisify(gzipCallback);
+const inflate = promisify(inflateCallback);
+const inflateRaw = promisify(inflateRawCallback);
 
 export { deflate, gzip, inflate, inflateRaw };
 

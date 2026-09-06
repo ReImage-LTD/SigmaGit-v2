@@ -15,7 +15,7 @@ import { randomUUID } from 'crypto';
 import { config } from '../config';
 import { isIP } from 'node:net';
 import { join } from 'path';
-import { exec } from 'bun';
+import { spawn } from 'bun';
 
 const TEMP_DIR = '/tmp/sigmagit-migrations';
 
@@ -155,15 +155,21 @@ export async function processMigration(migrationId: string) {
       env.GIT_CONFIG_KEY_1 = 'http.sslVerify';
       env.GIT_CONFIG_VALUE_1 = 'true';
     }
-    const cloneResult = await exec({
+    const cloneProcess = spawn({
       cmd: ['git', 'clone', '--bare', '--single-branch', cloneUrl, tempRepoPath],
       cwd: TEMP_DIR,
       env,
+      stdout: 'ignore',
+      stderr: 'pipe',
     });
+    const [exitCode, stderr] = await Promise.all([
+      cloneProcess.exited,
+      new Response(cloneProcess.stderr).text(),
+    ]);
     if (keyPath) await cleanupSshKey(keyPath);
 
-    if (cloneResult.exitCode !== 0) {
-      const errorMsg = cloneResult.stderr.toString();
+    if (exitCode !== 0) {
+      const errorMsg = stderr;
       if (
         errorMsg.includes('Authentication failed') ||
         errorMsg.includes('403') ||
