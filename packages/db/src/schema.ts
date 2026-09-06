@@ -413,6 +413,7 @@ export const issueReactions = pgTable(
 );
 
 export const apiKeys = pgTable("api_key", {
+  configId: text("config_id").notNull().default("default"),
   id: text("id").primaryKey(),
   name: text("name"),
   start: text("start"),

@@ -107,13 +107,13 @@ export async function resolveRegistryBasicAuth(authHeader: string | undefined): 
 
   // Try API key: identifier = username/email, password = API key
   try {
-    const tokenResult: { valid?: boolean; key?: { userId: string } } = await (auth.api as any).verifyApiKey?.({
+    const tokenResult: { valid?: boolean; key?: { referenceId: string } } = await (auth.api as any).verifyApiKey?.({
       body: { key: password },
       headers: new Headers(),
     });
-    if (tokenResult?.valid && tokenResult?.key?.userId) {
+    if (tokenResult?.valid && tokenResult?.key?.referenceId) {
       const [u] = await db.select({ id: users.id, name: users.name, email: users.email, username: users.username, avatarUrl: users.avatarUrl })
-        .from(users).where(eq(users.id, tokenResult.key.userId)).limit(1);
+        .from(users).where(eq(users.id, tokenResult.key.referenceId)).limit(1);
       if (u) {
         const match = identifier.includes("@") ? u.email.toLowerCase() === identifier.toLowerCase() : u.username.toLowerCase() === identifier.toLowerCase();
         if (match) {

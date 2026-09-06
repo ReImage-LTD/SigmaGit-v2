@@ -50,6 +50,13 @@
       "when": 1788700303849,
       "tag": "0006_stable_repository_storage",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788705625388,
+      "tag": "0007_api_key_configuration",
+      "breakpoints": true
     }
   ]
 }

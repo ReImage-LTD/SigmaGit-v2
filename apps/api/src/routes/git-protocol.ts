@@ -50,7 +50,7 @@ async function resolveBasicAuthUser(authHeader: string | undefined): Promise<Aut
       headers: new Headers(),
     });
 
-    if (tokenResult?.valid && tokenResult?.key?.userId) {
+    if (tokenResult?.valid && tokenResult?.key?.referenceId) {
       const tokenUserRow = await db
         .select({
           id: users.id,
@@ -60,7 +60,7 @@ async function resolveBasicAuthUser(authHeader: string | undefined): Promise<Aut
           avatarUrl: users.avatarUrl,
         })
         .from(users)
-        .where(eq(users.id, tokenResult.key.userId))
+        .where(eq(users.id, tokenResult.key.referenceId))
         .limit(1);
 
       const tokenUser = tokenUserRow[0];

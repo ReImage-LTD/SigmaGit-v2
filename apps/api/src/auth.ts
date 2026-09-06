@@ -364,6 +364,7 @@ export const initAuth = async () => {
           customPasswordCompromisedMessage: "Please choose a more secure password.",
         }),
         apiKey({
+          schema: { apikey: { fields: { referenceId: 'userId' } } },
           defaultPrefix: 'sigmagit_',
           rateLimit: {
             enabled: true,
@@ -383,6 +384,7 @@ export const initAuth = async () => {
         }),
       ],
       user: {
+        fields: { image: 'avatarUrl' },
         additionalFields: {
           username: {
             type: 'string',
