@@ -17,11 +17,21 @@ const typeIcons: Record<string, React.ReactNode> = {
 export function SearchBar({ className }: { className?: string }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
+  const [settledQuery, setSettledQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const { data, isLoading } = useSearch(query, { enabled: isOpen && query.length >= 2 });
+  useEffect(() => {
+    const timer = setTimeout(() => setSettledQuery(query.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const isSettled = query.trim() === settledQuery;
+  const { data, isFetching } = useSearch(settledQuery, {
+    enabled: isOpen && isSettled && settledQuery.length >= 2,
+  });
+  const isLoading = isOpen && query.trim().length >= 2 && (!isSettled || isFetching);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -96,7 +106,7 @@ export function SearchBar({ className }: { className?: string }) {
         </div>
       </form>
 
-      {isOpen && query.length >= 2 && data?.results && data.results.length > 0 && (
+      {isOpen && isSettled && query.length >= 2 && data?.results && data.results.length > 0 && (
         <div className="absolute top-full mt-2 w-full bg-popover border border-border rounded-xl shadow-2xl max-h-[400px] overflow-y-auto z-[60] p-2">
           <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
             Results
@@ -146,7 +156,7 @@ export function SearchBar({ className }: { className?: string }) {
       )}
 
       {/* eslint-disable-next-line @typescript-eslint/no-unnecessary-condition */}
-      {isOpen && query.length >= 2 && data?.results?.length === 0 && !isLoading && (
+      {isOpen && isSettled && query.length >= 2 && data?.results?.length === 0 && !isLoading && (
         <div className="absolute top-full mt-2 w-full bg-popover border border-border rounded-xl shadow-2xl z-[60] p-6 text-center">
           <div className="size-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
             <Search className="size-6 text-muted-foreground" />

@@ -16,7 +16,7 @@ export function useSearch(
 
   return useQuery({
     queryKey: ["search", query, type, limit, offset],
-    queryFn: () => api.search.query(query, { type, limit, offset }),
+    queryFn: ({ signal }) => api.search.query(query, { type, limit, offset, signal }),
     enabled: enabled && query.length >= 2,
     staleTime: 30000,
   });

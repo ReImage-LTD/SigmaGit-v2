@@ -51,6 +51,7 @@ import type {
   SearchResultType,
   Workflow,
   WorkflowRun,
+  SearchResponse,
   WorkflowJob,
   WorkflowStep,
   Runner,
@@ -683,12 +684,12 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     },
 
     search: {
-      query: (q: string, options?: { type?: string; limit?: number; offset?: number }) => {
+      query: (q: string, options?: { type?: string; limit?: number; offset?: number; signal?: AbortSignal }) => {
         const params = new URLSearchParams({ q });
         if (options?.type) params.set("type", options.type);
         if (options?.limit) params.set("limit", String(options.limit));
         if (options?.offset) params.set("offset", String(options.offset));
-        return apiFetch<any>(`/api/search?${params}`);
+        return apiFetch<SearchResponse>(`/api/search?${params}`, { signal: options?.signal });
       },
     },
 

@@ -755,7 +755,7 @@ export type ApiClient = {
     convertToDraft: (id: string) => Promise<{ success: boolean }>;
   };
   search: {
-    query: (q: string, options?: { type?: string; limit?: number; offset?: number }) => Promise<SearchResponse>;
+    query: (q: string, options?: { type?: string; limit?: number; offset?: number; signal?: AbortSignal }) => Promise<SearchResponse>;
   };
   notifications: {
     list: (options?: { limit?: number; offset?: number; unreadOnly?: boolean }) => Promise<{ notifications: Notification[]; hasMore: boolean }>;
