@@ -204,7 +204,6 @@ export async function processMigration(migrationId: string) {
       organizationId?: string;
     };
     let organizationId: string | null = null;
-    let storageOwnerId = user.id;
     if (options.organizationId) {
       const [member] = await db
         .select()
@@ -219,7 +218,6 @@ export async function processMigration(migrationId: string) {
         throw new Error("You don't have permission to create repositories in this organization");
       }
       organizationId = options.organizationId;
-      storageOwnerId = options.organizationId;
     }
 
     const existing = await db.query.repositories.findFirst({
@@ -243,7 +241,7 @@ export async function processMigration(migrationId: string) {
       })
       .returning();
 
-    const targetPrefix = getRepoPrefix(storageOwnerId, normalizedName);
+    const targetPrefix = getRepoPrefix(repo.storageOwnerId, normalizedName);
     const headContent = await Bun.file(join(tempRepoPath, 'HEAD'))
       .text()
       .catch(() => 'ref: refs/heads/main\n');

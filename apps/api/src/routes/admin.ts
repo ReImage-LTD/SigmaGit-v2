@@ -24,7 +24,7 @@ import { authMiddleware, requireAdmin, invalidateCachedUser, type AuthVariables 
 import { parseLimit, parseOffset } from "../lib/validation";
 import { repoCache, appCache } from "../redis";
 import { createGitStore, getCommitCountCached, listBranchesCached } from "../git";
-import { copyPrefix, deletePrefix, getRepoPrefix } from "../s3";
+import { deletePrefix, getRepoPrefix } from "../s3";
 import { getStorageOwnerId, invalidateRepositorySlugCache } from "../lib/repo-helpers";
 
 const app = new Hono<{ Variables: AuthVariables }>();
@@ -63,27 +63,13 @@ export async function logAuditEvent(
 }
 
 async function cleanupRepositoryStorage(
-  repository: Pick<typeof repositories.$inferSelect, "name" | "ownerId" | "organizationId">
+  repository: Pick<typeof repositories.$inferSelect, "name" | "ownerId" | "organizationId" | "storageOwnerId">
 ) {
-  const prefixes = new Set<string>();
-  prefixes.add(getRepoPrefix(repository.ownerId, repository.name));
-  if (repository.organizationId) {
-    prefixes.add(getRepoPrefix(repository.organizationId, repository.name));
-  }
-
-  await Promise.all(
-    Array.from(prefixes).map(async (prefix) => {
-      try {
-        await deletePrefix(prefix);
-      } catch (error) {
-        console.error(`[Admin] Failed to delete repository storage prefix "${prefix}":`, error);
-      }
-    })
-  );
+  await deletePrefix(getRepoPrefix(getStorageOwnerId(repository), repository.name));
 }
 
 async function invalidateRepositoryCaches(
-  repository: Pick<typeof repositories.$inferSelect, "name" | "ownerId" | "organizationId">
+  repository: Pick<typeof repositories.$inferSelect, "name" | "ownerId" | "organizationId" | "storageOwnerId">
 ) {
   const ownerNames = new Set<string>();
 
@@ -115,7 +101,7 @@ async function invalidateRepositoryCaches(
 }
 
 async function deleteRepositoryCompletely(
-  repository: Pick<typeof repositories.$inferSelect, "id" | "name" | "ownerId" | "organizationId">
+  repository: Pick<typeof repositories.$inferSelect, "id" | "name" | "ownerId" | "organizationId" | "storageOwnerId">
 ) {
   // PR rows may reference this repository via head/base repo IDs without ON DELETE CASCADE.
   await db
@@ -129,14 +115,11 @@ async function deleteRepositoryCompletely(
 
 type EmptyRepoCandidate = Pick<
   typeof repositories.$inferSelect,
-  "id" | "name" | "ownerId" | "organizationId" | "defaultBranch"
+  "id" | "name" | "ownerId" | "organizationId" | "storageOwnerId" | "defaultBranch"
 >;
 
 async function isRepositoryActuallyEmpty(repository: EmptyRepoCandidate): Promise<boolean> {
-  const storageOwnerIds = new Set<string>([repository.ownerId]);
-  if (repository.organizationId) {
-    storageOwnerIds.add(repository.organizationId);
-  }
+  const storageOwnerIds = new Set<string>([getStorageOwnerId(repository)]);
 
   for (const storageOwnerId of storageOwnerIds) {
     try {
@@ -169,6 +152,7 @@ async function getActuallyEmptyRepositories(): Promise<EmptyRepoCandidate[]> {
       name: repositories.name,
       ownerId: repositories.ownerId,
       organizationId: repositories.organizationId,
+      storageOwnerId: repositories.storageOwnerId,
       defaultBranch: repositories.defaultBranch,
     })
     .from(repositories)
@@ -407,6 +391,7 @@ app.post("/api/admin/utils/cleanup-empty-repos", async (c) => {
         name: row.name,
         ownerId: row.ownerId,
         organizationId: row.organizationId,
+        storageOwnerId: row.storageOwnerId,
       });
       deleted++;
     } catch (err) {
@@ -692,7 +677,7 @@ app.delete("/api/admin/users/:id", async (c) => {
   // Delete owned repositories explicitly so their git storage is cleaned up.
   const userRepos = await db.query.repositories.findMany({
     where: eq(repositories.ownerId, id),
-    columns: { id: true, name: true, ownerId: true, organizationId: true },
+    columns: { id: true, name: true, ownerId: true, organizationId: true, storageOwnerId: true },
   });
   for (const repository of userRepos) {
     await deleteRepositoryCompletely(repository);
@@ -742,6 +727,7 @@ app.get("/api/admin/repositories", async (c) => {
       description: repositories.description,
       ownerId: repositories.ownerId,
       organizationId: repositories.organizationId,
+      storageOwnerId: repositories.storageOwnerId,
       visibility: repositories.visibility,
       createdAt: repositories.createdAt,
       updatedAt: repositories.updatedAt,
@@ -849,19 +835,11 @@ app.post("/api/admin/repositories/:id/transfer", async (c) => {
     return c.json({ error: "Target owner already has a repository with this name" }, 409);
   }
 
-  const oldStorageOwnerId = existingRepo.organizationId ?? existingRepo.ownerId;
-  const oldStoragePrefix = getRepoPrefix(oldStorageOwnerId, existingRepo.name);
-  const newStoragePrefix = getRepoPrefix(newOwnerId, existingRepo.name);
-
-  await db
-    .update(repositories)
+  // The permanent storage namespace is independent of the owning account.
+  // Transfer changes metadata only: in-flight Git writes keep the same object paths.
+  await db.update(repositories)
     .set({ ownerId: newOwnerId, organizationId: null })
     .where(eq(repositories.id, id));
-
-  if (oldStoragePrefix !== newStoragePrefix) {
-    await copyPrefix(oldStoragePrefix, newStoragePrefix);
-    await deletePrefix(oldStoragePrefix);
-  }
 
   const oldOwnerName = existingRepo.organizationId
     ? (
@@ -1230,7 +1208,7 @@ app.delete("/api/admin/organizations/:id", async (c) => {
   // Delete organization repositories explicitly so git storage and cache are cleaned up.
   const organizationRepos = await db.query.repositories.findMany({
     where: eq(repositories.organizationId, id),
-    columns: { id: true, name: true, ownerId: true, organizationId: true },
+    columns: { id: true, name: true, ownerId: true, organizationId: true, storageOwnerId: true },
   });
 
   for (const repository of organizationRepos) {

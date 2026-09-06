@@ -852,7 +852,7 @@ app.get("/api/pulls/:id/diff", async (c) => {
     return c.json({ error: "Head repository owner not found" }, 404);
   }
 
-  const headStore = createGitStore(headRepoOwner.id, headRepo.name);
+  const headStore = createGitStore(getStorageOwnerId(headRepo), headRepo.name);
   const diff = await getCommitDiff(headStore.fs, headStore.dir, pr.headOid);
 
   if (!diff) {
@@ -907,7 +907,7 @@ app.get("/api/pulls/:id/commits", async (c) => {
     return c.json({ error: "Head repository owner not found" }, 404);
   }
 
-  const headStore = createGitStore(headRepoOwner.id, headRepo.name);
+  const headStore = createGitStore(getStorageOwnerId(headRepo), headRepo.name);
   const { commits, hasMore } = await getCommits(headStore.fs, headStore.dir, pr.headBranch, limit, skip);
 
   return c.json({ commits, hasMore });

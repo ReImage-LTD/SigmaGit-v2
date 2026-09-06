@@ -294,7 +294,6 @@ app.post("/api/repositories", requireAuth, writeRateLimit, async (c) => {
   }
 
   // If organizationId is provided, verify user has permission
-  let ownerId = user.id;
   if (body.organizationId) {
     const [member] = await db
       .select()
@@ -309,7 +308,6 @@ app.post("/api/repositories", requireAuth, writeRateLimit, async (c) => {
     if (!member || (member.role !== "owner" && member.role !== "admin")) {
       return c.json({ error: "You don't have permission to create repositories in this organization" }, 403);
     }
-    ownerId = body.organizationId; // Use org ID as owner for storage prefix
   }
 
   const existing = await db.query.repositories.findFirst({
@@ -336,8 +334,7 @@ app.post("/api/repositories", requireAuth, writeRateLimit, async (c) => {
     })
     .returning();
 
-  // Use organization name for storage if org repo, otherwise user ID
-  const storageOwnerId = body.organizationId ? body.organizationId : user.id;
+  const storageOwnerId = getStorageOwnerId(repo);
   const repoPrefix = getRepoPrefix(storageOwnerId, normalizedName);
   await putObject(`${repoPrefix}/HEAD`, "ref: refs/heads/main\n");
   await putObject(`${repoPrefix}/config`, "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = true\n");
@@ -391,6 +388,7 @@ app.post("/api/repositories/:owner/:name/fork", requireAuth, writeRateLimit, asy
       description: repositories.description,
       ownerId: repositories.ownerId,
       organizationId: repositories.organizationId,
+      storageOwnerId: repositories.storageOwnerId,
       visibility: repositories.visibility,
       defaultBranch: repositories.defaultBranch,
       createdAt: repositories.createdAt,
@@ -482,7 +480,7 @@ app.post("/api/repositories/:owner/:name/fork", requireAuth, writeRateLimit, asy
     .returning();
 
   const sourcePrefix = getRepoPrefix(getStorageOwnerId(source), source.name);
-  const targetPrefix = getRepoPrefix(user.id, targetName);
+  const targetPrefix = getRepoPrefix(getStorageOwnerId(forkRepo), targetName);
   await copyPrefix(sourcePrefix, targetPrefix);
 
   const sourceMetadata = await db.query.repoBranchMetadata.findMany({
@@ -952,7 +950,7 @@ app.delete("/api/repositories/:id", requireAuth, async (c) => {
   }
 
   console.log(`[API] Deleting repository ${user.id}/${repo.name}`);
-  const repoPrefix = getRepoPrefix(user.id, repo.name);
+  const repoPrefix = getRepoPrefix(getStorageOwnerId(repo), repo.name);
 
   const keys = await listObjects(repoPrefix);
   console.log(`[API] Found ${keys.length} objects to delete`);

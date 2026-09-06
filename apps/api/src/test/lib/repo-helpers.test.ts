@@ -10,3 +10,10 @@ describe('getStorageOwnerId', () => {
     expect(getStorageOwnerId({ ownerId: 'user-1', organizationId: 'org-1' })).toBe('org-1');
   });
 });
+
+it('keeps the same object namespace across personal and organization transfers', () => {
+  const repository = { ownerId: 'old-owner', organizationId: 'old-org', storageOwnerId: 'permanent-storage' };
+  expect(getStorageOwnerId(repository)).toBe('permanent-storage');
+  expect(getStorageOwnerId({ ...repository, ownerId: 'new-owner', organizationId: null })).toBe('permanent-storage');
+  expect(getStorageOwnerId({ ...repository, organizationId: 'new-org' })).toBe('permanent-storage');
+});

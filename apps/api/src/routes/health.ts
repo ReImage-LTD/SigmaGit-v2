@@ -93,6 +93,7 @@ app.get("/api/debug/repo/:owner/:name", authMiddleware, requireAdmin, async (c) 
       id: repositories.id,
       name: repositories.name,
       ownerId: repositories.ownerId,
+      storageOwnerId: repositories.storageOwnerId,
       userId: users.id,
     })
     .from(repositories)
@@ -105,7 +106,7 @@ app.get("/api/debug/repo/:owner/:name", authMiddleware, requireAdmin, async (c) 
     return c.json({ error: "Repository not found" }, 404);
   }
 
-  const prefix = `repos/${row.userId}/${row.name}/`;
+  const prefix = `repos/${row.storageOwnerId}/${row.name}/`;
   const keys = await listObjects(prefix);
   const sampleKeys = keys.slice(0, 100);
 

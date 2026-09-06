@@ -102,6 +102,7 @@ export async function syncWorkflows(repoId: string): Promise<void> {
       .select({
         ownerId: repositories.ownerId,
         organizationId: repositories.organizationId,
+        storageOwnerId: repositories.storageOwnerId,
         name: repositories.name,
         defaultBranch: repositories.defaultBranch,
       })

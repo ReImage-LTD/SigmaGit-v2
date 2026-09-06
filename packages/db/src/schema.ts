@@ -234,6 +234,7 @@ export const repositories = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+    storageOwnerId: text("storage_owner_id").notNull().default(sql`gen_random_uuid()::text`),
     forkedFromId: uuid("forked_from_id").references((): AnyPgColumn => repositories.id, { onDelete: "set null" }),
     visibility: text("visibility", { enum: ["public", "private"] })
       .notNull()

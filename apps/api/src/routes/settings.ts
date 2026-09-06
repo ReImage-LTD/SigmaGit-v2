@@ -1,3 +1,4 @@
+import { getStorageOwnerId } from '../lib/repo-helpers';
 import {
   deleteAccountBodySchema,
   getValidated,
@@ -476,13 +477,13 @@ app.delete(
 
     const repos = await db.query.repositories.findMany({
       where: eq(repositories.ownerId, user.id),
-      columns: { name: true },
+      columns: { name: true, ownerId: true, organizationId: true, storageOwnerId: true },
     });
 
     const storageErrors: string[] = [];
 
     for (const repo of repos) {
-      const repoPrefix = getRepoPrefix(user.id, repo.name);
+      const repoPrefix = getRepoPrefix(getStorageOwnerId(repo), repo.name);
       try {
         await deletePrefix(repoPrefix);
       } catch (error) {
