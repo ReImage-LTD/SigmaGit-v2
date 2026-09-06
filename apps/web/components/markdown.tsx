@@ -1,10 +1,11 @@
 "use client";
 
+import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sanitizeUserUrl } from "@/lib/safe-html";
 
-export function Markdown({ content }: { content: string }) {
+export const Markdown = memo(function MarkdownContent({ content }: { content: string }) {
   return (
     <div className="markdown-body prose prose-sm dark:prose-invert max-w-none">
       <ReactMarkdown
@@ -28,4 +29,4 @@ export function Markdown({ content }: { content: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});

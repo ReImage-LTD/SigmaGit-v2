@@ -2,8 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useCallback, useEffect, useState } from "react";
-import { codeToHtml } from "shiki";
+import { memo, useCallback, useEffect, useState } from "react";
 import { useTheme } from "tanstack-theme-kit";
 import { CheckCircle2, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,15 +25,18 @@ function useHighlightedCode(
   useEffect(() => {
     if (!enabled) return;
     let active = true;
+    const isActive = () => active;
     async function highlight() {
       try {
+        const { codeToHtml } = await import("shiki");
+        if (!isActive()) return;
         const html = await codeToHtml(content, {
           lang: !language || language === 'text' ? 'plaintext' : language,
           theme: theme === 'dark' ? 'github-dark-default' : 'github-light-default',
         });
-        if (active) setResult({ content, language, theme, html: sanitizeShikiHtml(html) });
+        if (isActive()) setResult({ content, language, theme, html: sanitizeShikiHtml(html) });
       } catch {
-        if (active) setResult(null);
+        if (isActive()) setResult(null);
       }
     }
     void highlight();
@@ -52,7 +54,7 @@ function useHighlightedCode(
     : null;
 }
 
-export function CodeViewer({
+export const CodeViewer = memo(function CodeViewerContent({
   content,
   language,
   showLineNumbers = false,
@@ -170,7 +172,7 @@ export function CodeViewer({
       </table>
     </div>
   );
-}
+});
 
 function CodeBlock({ children, language, theme }: { children: string; language: string; theme: string | undefined }) {
   const html = useHighlightedCode(children, language, theme);
