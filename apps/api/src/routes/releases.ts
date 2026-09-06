@@ -425,7 +425,7 @@ app.delete("/api/repositories/:owner/:name/releases/:id/assets/:assetId", requir
   const [asset] = await db
     .select()
     .from(releaseAssets)
-    .where(eq(releaseAssets.id, assetId));
+    .where(and(eq(releaseAssets.id, assetId), eq(releaseAssets.releaseId, release.id)));
 
   if (!asset) {
     return c.json({ error: "Asset not found" }, 404);
@@ -436,7 +436,7 @@ app.delete("/api/repositories/:owner/:name/releases/:id/assets/:assetId", requir
   } catch (err) {
     console.error("[Releases] Failed to delete asset from storage:", err);
   }
-  await db.delete(releaseAssets).where(eq(releaseAssets.id, assetId));
+  await db.delete(releaseAssets).where(and(eq(releaseAssets.id, assetId), eq(releaseAssets.releaseId, release.id)));
 
   return c.json({ success: true });
 });

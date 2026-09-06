@@ -160,6 +160,13 @@ jobs:
     cookie: `sigmagit_dev.session_token=${encodeURIComponent(`${sessionToken}.${signature}`)}`,
     'content-type': 'application/json',
   };
+  const { checkReleaseAuthorization } = await import('./release-authorization');
+  await checkReleaseAuthorization({
+    baseURL,
+    ownerId,
+    repositoryId: repo.id,
+    headers: dispatchHeaders,
+  });
   const keyResponse = await fetch(`${baseURL}/api/auth/api-key/create`, {
     method: 'POST',
     headers: dispatchHeaders,
@@ -328,14 +335,12 @@ jobs:
       status: 'queued',
     })
     .returning();
-  await db
-    .insert(workflowJobs)
-    .values({
-      runId: removedRun.id,
-      name: 'removed runner',
-      status: 'queued',
-      workflowDefinition: {},
-    });
+  await db.insert(workflowJobs).values({
+    runId: removedRun.id,
+    name: 'removed runner',
+    status: 'queued',
+    workflowDefinition: {},
+  });
   const heartbeatRequest = () =>
     fetch(`${baseURL}/api/runners/${runner.id}/heartbeat`, {
       method: 'POST',
