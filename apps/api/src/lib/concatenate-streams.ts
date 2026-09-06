@@ -1,3 +1,5 @@
+import type { ReadableStreamDefaultReader } from 'node:stream/web';
+
 /** Concatenate lazy sources with at most one active reader and no eager prefetch. */
 export function concatenateStreams<T>(
   sources: readonly T[],

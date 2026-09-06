@@ -4,8 +4,8 @@ import { createGitStore, type GitStore } from '../git';
 import { canAccessRepository, type AccessUser } from './access';
 import { appCache, CACHE_TTL, getCached, setCache } from '../redis';
 
-export function getStorageOwnerId(repo: { ownerId: string; organizationId?: string | null; storageOwnerId?: string }): string {
-  return repo.storageOwnerId ?? repo.organizationId ?? repo.ownerId;
+export function getStorageOwnerId(repo: { ownerId: string; organizationId?: string | null; storageOwnerId: string }): string {
+  return repo.storageOwnerId;
 }
 
 export type ResolvedRepo = {

@@ -144,5 +144,5 @@ test('directory listing requests immediate children and follows pagination', asy
 test('directory existence fetches at most one key', async () => {
   const send = spyOn(S3Client.prototype, 'send').mockImplementation((async () => ({Contents: [{Key: 'repos/u/repo/HEAD'}]})) as unknown as S3Client['send']);
   expect(await backend().hasPrefix('repos/u/repo')).toBe(true);
-  expect((send.mock.calls[0][0] as {input: Record<string, unknown>}).input.MaxKeys).toBe(1);
+  expect((send.mock.calls[0][0] as unknown as {input: Record<string, unknown>}).input.MaxKeys).toBe(1);
 });

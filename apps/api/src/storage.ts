@@ -330,7 +330,7 @@ export class S3StorageBackend implements StorageBackend {
       ContentEncoding: head.ContentEncoding, ContentLanguage: head.ContentLanguage,
       ContentDisposition: head.ContentDisposition, CacheControl: head.CacheControl,
       Expires: head.Expires, Metadata: head.Metadata,
-      Tagging: new URLSearchParams((tags.TagSet ?? []).map(tag => [tag.Key!, tag.Value!])).toString() || undefined,
+      Tagging: new URLSearchParams((tags.TagSet ?? []).map<[string, string]>(tag => [tag.Key!, tag.Value!])).toString() || undefined,
     }), options);
     if (!upload.UploadId) throw new Error('Missing multipart upload ID');
     const UploadId = upload.UploadId;
@@ -415,13 +415,13 @@ export class S3StorageBackend implements StorageBackend {
   }
 }
 
-class LocalStorageBackend implements StorageBackend {
+export class LocalStorageBackend implements StorageBackend {
   type: StorageType = 'local';
   private basePath: string;
   private initPromise: Promise<void> | null = null;
 
-  constructor() {
-    this.basePath = config.storage.localPath;
+  constructor(basePath = config.storage.localPath) {
+    this.basePath = basePath;
   }
 
   private ensureBasePath(): Promise<void> {
