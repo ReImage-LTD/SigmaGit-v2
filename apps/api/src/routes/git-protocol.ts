@@ -1087,14 +1087,7 @@ app.post("/:owner/:name/git-receive-pack", async (c) => {
     }
 
     if (updates.length > 0) {
-      const defaultBranch = updates[0].ref.startsWith("refs/")
-        ? updates[0].ref.replace("refs/heads/", "")
-        : updates[0].ref;
-      const headRef = `refs/heads/${defaultBranch}`;
-      const headKey = `repos/${repo.storageOwnerId}/${repo.name}/HEAD`;
-      await putObject(headKey, Buffer.from(`ref: ${headRef}\n`));
-
-
+      // HEAD is set when the repository is created or its default branch changes.
       for (const update of updates) {
         const branch = update.ref.startsWith("refs/heads/")
           ? update.ref.replace("refs/heads/", "")
