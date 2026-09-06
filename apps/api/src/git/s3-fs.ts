@@ -2,8 +2,9 @@ import {
   getObject,
   putObject,
   deleteObject,
-  listObjects,
-  objectExists,
+  listDirectory,
+  prefixExists,
+  deletePrefix,
   getObjectSize,
 } from '../s3';
 import { config } from '../config';
@@ -139,25 +140,10 @@ export function createS3Fs(basePath: string) {
         if (hasNegative(`dir:${searchPrefix}`)) {
           return [];
         }
-        const keys = await listObjects(searchPrefix);
-        if (keys.length === 0) {
-          markNegative(`dir:${searchPrefix}`);
-          return [];
-        }
-        clearNegative(`dir:${searchPrefix}`);
-
-        const entries = new Set<string>();
-        for (const key of keys) {
-          const relative = key.slice(searchPrefix.length);
-          if (relative) {
-            const firstPart = relative.split('/')[0];
-            if (firstPart) {
-              entries.add(firstPart);
-            }
-          }
-        }
-
-        return Array.from(entries);
+        const entries = await listDirectory(searchPrefix);
+        if (!entries.length) markNegative(`dir:${searchPrefix}`);
+        else clearNegative(`dir:${searchPrefix}`);
+        return entries;
       },
 
       async mkdir(filepath: string, _options?: { recursive?: boolean }): Promise<void> {
@@ -166,10 +152,7 @@ export function createS3Fs(basePath: string) {
 
       async rmdir(filepath: string): Promise<void> {
         const prefix = normalize(filepath);
-        const keys = await listObjects(prefix + '/');
-        for (const key of keys) {
-          await deleteObject(key);
-        }
+        await deletePrefix(prefix);
       },
 
       async stat(filepath: string): Promise<S3FsStats> {
@@ -199,11 +182,10 @@ export function createS3Fs(basePath: string) {
           };
         }
 
-        const exists = await objectExists(key);
-        if (exists) {
+        const size = await getObjectSize(key);
+        if (size !== null) {
           clearNegative(`file:${key}`);
           clearNegative(`stat:${key}`);
-          const size = (await getObjectSize(key)) ?? 0;
           return {
             type: 'file',
             mode: 0o100644,
@@ -221,8 +203,7 @@ export function createS3Fs(basePath: string) {
         }
 
         const dirPrefix = key + '/';
-        const keys = await listObjects(dirPrefix);
-        if (keys.length > 0) {
+        if (await prefixExists(dirPrefix)) {
           clearNegative(`dir:${dirPrefix}`);
           clearNegative(`stat:${key}`);
           return {

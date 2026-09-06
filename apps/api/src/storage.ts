@@ -85,6 +85,8 @@ export interface StorageBackend {
   exists(key: string): Promise<boolean>;
   getSize(key: string): Promise<number | null>;
   list(prefix: string): Promise<string[]>;
+  listDirectory(prefix: string): Promise<string[]>;
+  hasPrefix(prefix: string): Promise<boolean>;
   deletePrefix(prefix: string): Promise<void>;
   copyPrefix(sourcePrefix: string, targetPrefix: string): Promise<void>;
   getStream(key: string): Promise<ReadableStream | null>;
@@ -247,6 +249,35 @@ export class S3StorageBackend implements StorageBackend {
     } while (continuationToken);
 
     return keys;
+  }
+
+  async hasPrefix(prefix: string): Promise<boolean> {
+    if (!this.client) throw new Error('S3 is not configured');
+    const response = await this.client.send(new ListObjectsV2Command({
+      Bucket: this.bucket, Prefix: directoryPrefix(prefix), MaxKeys: 1,
+    }), {abortSignal: requestSignal()});
+    return Boolean(response.Contents?.length);
+  }
+
+  async listDirectory(prefix: string): Promise<string[]> {
+    if (!this.client) throw new Error('S3 is not configured');
+    prefix = directoryPrefix(prefix);
+    const entries = new Set<string>();
+    let continuationToken: string | undefined;
+    do {
+      const response = await this.client.send(new ListObjectsV2Command({
+        Bucket: this.bucket, Prefix: prefix, Delimiter: '/', ContinuationToken: continuationToken,
+      }), {abortSignal: requestSignal()});
+      for (const key of [
+        ...(response.Contents ?? []).map(object => object.Key),
+        ...(response.CommonPrefixes ?? []).map(object => object.Prefix),
+      ]) {
+        const name = key?.slice(prefix.length).replace(/\/$/, '');
+        if (name) entries.add(name);
+      }
+      continuationToken = response.NextContinuationToken;
+    } while (continuationToken);
+    return [...entries].sort();
   }
 
   async deletePrefix(prefix: string): Promise<void> {
@@ -482,7 +513,7 @@ class LocalStorageBackend implements StorageBackend {
     try {
       const fullPath = this.getFullPath(key);
       const fileStat = await stat(fullPath);
-      return fileStat.size;
+      return fileStat.isFile() ? fileStat.size : null;
     } catch (error: any) {
       if (error.code === 'ENOENT') {
         return null;
@@ -529,6 +560,20 @@ class LocalStorageBackend implements StorageBackend {
     }
 
     return keys;
+  }
+
+  async listDirectory(prefix: string): Promise<string[]> {
+    await this.ensureBasePath();
+    try {
+      return (await readdir(this.getFullPath(directoryPrefix(prefix)))).sort();
+    } catch (error) {
+      if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return [];
+      throw error;
+    }
+  }
+
+  async hasPrefix(prefix: string): Promise<boolean> {
+    return (await this.listDirectory(prefix)).length > 0;
   }
 
   async deletePrefix(prefix: string): Promise<void> {
@@ -700,3 +745,6 @@ export const getObjectStream = async (key: string): Promise<ReadableStream | nul
   const storage = getStorageBackend();
   return storage.getStream(key);
 };
+
+export const listDirectory = (prefix: string): Promise<string[]> => getStorageBackend().listDirectory(prefix);
+export const prefixExists = (prefix: string): Promise<boolean> => getStorageBackend().hasPrefix(prefix);

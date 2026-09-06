@@ -127,3 +127,22 @@ test('bulk delete propagates per-key errors even in successful HTTP responses', 
   }) as unknown as S3Client['send']);
   await expect(backend().deletePrefix('repos/u/repo')).rejects.toThrow('AccessDenied');
 });
+
+test('directory listing requests immediate children and follows pagination', async () => {
+  const requests: Record<string, unknown>[] = [];
+  spyOn(S3Client.prototype, 'send').mockImplementation((async (command: {input: Record<string, unknown>}) => {
+    requests.push(command.input);
+    return requests.length === 1
+      ? {Contents: [{Key: 'repos/u/repo/HEAD'}], CommonPrefixes: [{Prefix: 'repos/u/repo/objects/'}], NextContinuationToken: 'next'}
+      : {Contents: [{Key: 'repos/u/repo/config'}]};
+  }) as unknown as S3Client['send']);
+  expect(await backend().listDirectory('repos/u/repo')).toEqual(['HEAD', 'config', 'objects']);
+  expect(requests[0]).toMatchObject({Prefix: 'repos/u/repo/', Delimiter: '/'});
+  expect(requests[1].ContinuationToken).toBe('next');
+});
+
+test('directory existence fetches at most one key', async () => {
+  const send = spyOn(S3Client.prototype, 'send').mockImplementation((async () => ({Contents: [{Key: 'repos/u/repo/HEAD'}]})) as unknown as S3Client['send']);
+  expect(await backend().hasPrefix('repos/u/repo')).toBe(true);
+  expect((send.mock.calls[0][0] as {input: Record<string, unknown>}).input.MaxKeys).toBe(1);
+});
