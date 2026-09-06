@@ -41,7 +41,9 @@ app.get("/file/:username/:repo/:branch/*", async (c) => {
     status: 200,
     headers: {
       "Content-Type": contentType,
-      "Cache-Control": "public, max-age=3600",
+      // Always reauthorize mutable repository URLs, including public repositories
+      // that may subsequently become private. Never retain private file contents.
+      "Cache-Control": "private, no-store",
     },
   });
 });

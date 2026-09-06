@@ -121,15 +121,11 @@ export function evaluateRepoAccessFromFacts(
     if (role === 'member' && repo.visibility === 'public' && !writeRequired) return true;
   }
 
-  if (facts.collaboratorPermission != null) {
-    return satisfiesAccess(facts.collaboratorPermission, writeRequired);
-  }
-
-  if (facts.teamPermission != null) {
-    return satisfiesAccess(facts.teamPermission, writeRequired);
-  }
-
-  return false;
+  return (
+    (facts.collaboratorPermission != null &&
+      satisfiesAccess(facts.collaboratorPermission, writeRequired)) ||
+    (facts.teamPermission != null && satisfiesAccess(facts.teamPermission, writeRequired))
+  );
 }
 
 /**
@@ -191,24 +187,7 @@ export async function canAccessRepository(
 
   const facts = await getRepoAccessFacts(repo, user.id);
 
-  // Organization membership
-  if (repo.organizationId) {
-    const role = facts.orgRole;
-    if (role === 'owner' || role === 'admin') return true;
-    if (role === 'member' && repo.visibility === 'public' && !writeRequired) return true;
-  }
-
-  // Check collaborator status
-  if (facts.collaboratorPermission != null) {
-    return satisfiesAccess(facts.collaboratorPermission, writeRequired);
-  }
-
-  // Check team repository access
-  if (facts.teamPermission != null) {
-    return satisfiesAccess(facts.teamPermission, writeRequired);
-  }
-
-  return false;
+  return evaluateRepoAccessFromFacts(repo, user, facts, writeRequired);
 }
 
 /**
@@ -305,34 +284,12 @@ export async function filterAccessibleRepos<T extends Repository>(
   for (const repo of repos) {
     if (accessibleIds.has(repo.id)) continue;
 
-    if (user.role === 'admin' && writeRequired) {
-      const collab = collabByRepo.get(repo.id);
-      if (repo.ownerId === userId || (collab != null && hasWritePermission(collab))) {
-        accessibleIds.add(repo.id);
-        continue;
-      }
-    }
-
-    if (repo.organizationId) {
-      const role = orgRoleByOrgId.get(repo.organizationId);
-      if (role === 'owner' || role === 'admin') {
-        accessibleIds.add(repo.id);
-        continue;
-      }
-      if (role === 'member' && repo.visibility === 'public' && !writeRequired) {
-        accessibleIds.add(repo.id);
-        continue;
-      }
-    }
-
-    const collabPerm = collabByRepo.get(repo.id);
-    if (collabPerm != null && satisfiesAccess(collabPerm, writeRequired)) {
-      accessibleIds.add(repo.id);
-      continue;
-    }
-
-    const teamPerm = teamPermByRepo.get(repo.id);
-    if (teamPerm != null && satisfiesAccess(teamPerm, writeRequired)) {
+    const facts: RepoAccessFacts = {
+      collaboratorPermission: collabByRepo.get(repo.id) ?? null,
+      orgRole: repo.organizationId ? orgRoleByOrgId.get(repo.organizationId) ?? null : null,
+      teamPermission: teamPermByRepo.get(repo.id) ?? null,
+    };
+    if (evaluateRepoAccessFromFacts(repo, user, facts, writeRequired)) {
       accessibleIds.add(repo.id);
     }
   }
