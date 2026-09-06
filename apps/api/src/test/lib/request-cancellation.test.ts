@@ -17,6 +17,45 @@ const storage = () =>
   });
 
 describe('request cancellation propagation', () => {
+  it('cancels S3 storage during a pending read after delivering a chunk', async () => {
+    let cancellations = 0;
+    let receivedReason: unknown;
+    const pulled = Promise.withResolvers<void>();
+    let reads = 0;
+    spyOn(S3Client.prototype, 'send').mockImplementation((async () => ({
+      Body: {
+        transformToWebStream: () =>
+          new ReadableStream<Uint8Array>(
+            {
+              pull(controller) {
+                if (reads++ === 0) controller.enqueue(new Uint8Array([1, 2, 3]));
+                else pulled.resolve();
+              },
+              cancel(reason) {
+                cancellations++;
+                receivedReason = reason;
+                // A failing transport cleanup must not replace the cancellation error.
+                return Promise.reject(new Error('transport cleanup failed'));
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+      },
+    })) as unknown as typeof S3Client.prototype.send);
+    const caller = new AbortController();
+    const stream = await storage().getStream('key', caller.signal);
+    const reader = stream!.getReader();
+    expect((await reader.read()).value).toEqual(new Uint8Array([1, 2, 3]));
+    const next = reader.read();
+    await pulled.promise;
+    const reason = new Error('client disconnected');
+    caller.abort(reason);
+    await expect(next).rejects.toThrow('client disconnected');
+    await expect(reader.read()).rejects.toThrow('client disconnected');
+    expect(receivedReason).toBe(reason);
+    expect(cancellations).toBe(1);
+  });
+
   it('combines the HTTP deadline with a guarded fetch caller signal', async () => {
     let observed: AbortSignal | null | undefined;
     spyOn(globalThis, 'fetch').mockImplementation(((_input: unknown, init?: RequestInit) => {

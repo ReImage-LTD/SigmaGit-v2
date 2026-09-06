@@ -29,6 +29,34 @@ export async function checkMigrationClaims(userId: string) {
       .where(eq(repositoryMigrations.id, ids[0]));
     assert.equal(await claimMigration(ids[0]), undefined);
     console.log('PASS concurrent import claims are exclusive and terminal jobs cannot be claimed');
+    await db
+      .update(repositoryMigrations)
+      .set({ status: 'pending' })
+      .where(inArray(repositoryMigrations.id, ids.slice(0, 2)));
+    await db.transaction(async (tx) => {
+      await tx
+        .select()
+        .from(repositoryMigrations)
+        .where(eq(repositoryMigrations.id, ids[0]))
+        .for('update');
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const claimed = await Promise.race([
+          claimMigration(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error('Claim blocked behind another worker')),
+              2000,
+            );
+          }),
+        ]);
+        assert.equal(claimed?.id, ids[1]);
+      } finally {
+        clearTimeout(timer);
+      }
+    });
+    assert.equal((await claimMigration())?.id, ids[0]);
+    console.log('PASS import claims skip a locked job and leave it available after unlock');
   } finally {
     await db.delete(repositoryMigrations).where(inArray(repositoryMigrations.id, ids));
   }

@@ -1,4 +1,4 @@
-import { createSingleFlight } from '../lib/single-flight';
+import { createCachedGitLoad } from '../lib/cached-git-load';
 import { requestSignal } from '../lib/request-context';
 import { mapConcurrent } from '../lib/map-concurrent';
 import git from "isomorphic-git";
@@ -1003,22 +1003,7 @@ export async function getRefsAdvertisement(
   }
 }
 
-const shareGitLoad = createSingleFlight();
-async function cachedGitLoad<T>(store: GitStore, parts: unknown[], ttl: number, load: () => Promise<T>, cacheable: (value: T) => boolean = () => true): Promise<T> {
-  const key = await repoCache.key(store.ownerId, store.repoName, parts);
-  const flightKey = key ?? repoCache.flightKey(store.ownerId, store.repoName, parts);
-  return shareGitLoad(flightKey, async () => {
-    if (key) {
-      const cached = await getCached<T>(key);
-      if (cached !== null) return cached;
-    }
-    const result = await load();
-    // Never publish a result after all callers have disconnected or timed out.
-    requestSignal()?.throwIfAborted();
-    if (key && result !== null && cacheable(result)) await setCache(key, result, ttl);
-    return result;
-  }, requestSignal());
-}
+const cachedGitLoad = createCachedGitLoad({ repoCache, getCached, setCache });
 
 export async function listBranchesCached(store: GitStore): Promise<string[]> {
   return cachedGitLoad(store, ['branches'], CACHE_TTL.branches, () => listBranches(store.fs, store.dir));
