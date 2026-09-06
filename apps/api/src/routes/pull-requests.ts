@@ -612,28 +612,34 @@ app.post("/api/repositories/:owner/:name/pulls", requireAuth, writeRateLimit, as
   const headOid = headCommits.commits[0].oid;
   const baseOid = baseCommits.commits[0].oid;
 
-  const [maxNumber] = await db
-    .select({ max: sql<number>`COALESCE(MAX(number), 0)` })
-    .from(pullRequests)
-    .where(eq(pullRequests.repositoryId, repoAccess.id));
+  const inserted = await db.transaction(async (tx) => {
+    // Lock the parent row before reading MAX so concurrent creators see committed numbers.
+    await tx.select({ id: repositories.id }).from(repositories)
+      .where(eq(repositories.id, repoAccess.id)).for('update');
+    const [maxNumber] = await tx
+      .select({ max: sql<number>`COALESCE(MAX(number), 0)` })
+      .from(pullRequests)
+      .where(eq(pullRequests.repositoryId, repoAccess.id));
 
-  const [inserted] = await db
-    .insert(pullRequests)
-    .values({
-      repositoryId: repoAccess.id,
-      authorId: user.id,
-      title: body.title,
-      body: body.body,
-      number: (maxNumber?.max || 0) + 1,
-      headRepoId,
-      headBranch: body.headBranch,
-      headOid,
-      baseRepoId: repoAccess.id,
-      baseBranch,
-      baseOid,
-      isDraft: body.isDraft ?? false,
-    })
-    .returning();
+    const [created] = await tx
+      .insert(pullRequests)
+      .values({
+        repositoryId: repoAccess.id,
+        authorId: user.id,
+        title: body.title,
+        body: body.body,
+        number: (maxNumber?.max || 0) + 1,
+        headRepoId,
+        headBranch: body.headBranch,
+        headOid,
+        baseRepoId: repoAccess.id,
+        baseBranch,
+        baseOid,
+        isDraft: body.isDraft ?? false,
+      })
+      .returning();
+    return created;
+  }, { isolationLevel: 'read committed' });
 
   if (body.labels?.length) {
     for (const labelId of body.labels) {

@@ -362,21 +362,27 @@ app.post('/api/repositories/:owner/:name/issues', requireAuth, writeRateLimit, a
     return c.json({ error: 'Title cannot be empty' }, 400);
   }
 
-  const [maxNumber] = await db
-    .select({ max: sql<number>`COALESCE(MAX(number), 0)` })
-    .from(issues)
-    .where(eq(issues.repositoryId, repoAccess.id));
+  const inserted = await db.transaction(async (tx) => {
+    // Lock the parent row before reading MAX so concurrent creators see committed numbers.
+    await tx.select({ id: repositories.id }).from(repositories)
+      .where(eq(repositories.id, repoAccess.id)).for('update');
+    const [maxNumber] = await tx
+      .select({ max: sql<number>`COALESCE(MAX(number), 0)` })
+      .from(issues)
+      .where(eq(issues.repositoryId, repoAccess.id));
 
-  const [inserted] = await db
-    .insert(issues)
-    .values({
-      repositoryId: repoAccess.id,
-      authorId: user.id,
-      title: body.title,
-      body: body.body,
-      number: (maxNumber?.max || 0) + 1,
-    })
-    .returning();
+    const [created] = await tx
+      .insert(issues)
+      .values({
+        repositoryId: repoAccess.id,
+        authorId: user.id,
+        title: body.title,
+        body: body.body,
+        number: (maxNumber?.max || 0) + 1,
+      })
+      .returning();
+    return created;
+  }, { isolationLevel: 'read committed' });
 
   if (body.labels?.length) {
     await db

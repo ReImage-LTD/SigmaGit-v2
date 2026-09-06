@@ -334,22 +334,28 @@ app.post("/api/repositories/:owner/:name/discussions", requireAuth, async (c) =>
     return c.json({ error: "Body is required" }, 400);
   }
 
-  const [maxNumber] = await db
-    .select({ max: sql<number>`COALESCE(MAX(number), 0)` })
-    .from(discussions)
-    .where(eq(discussions.repositoryId, repoAccess.id));
+  const inserted = await db.transaction(async (tx) => {
+    // Lock the parent row before reading MAX so concurrent creators see committed numbers.
+    await tx.select({ id: repositories.id }).from(repositories)
+      .where(eq(repositories.id, repoAccess.id)).for('update');
+    const [maxNumber] = await tx
+      .select({ max: sql<number>`COALESCE(MAX(number), 0)` })
+      .from(discussions)
+      .where(eq(discussions.repositoryId, repoAccess.id));
 
-  const [inserted] = await db
-    .insert(discussions)
-    .values({
-      repositoryId: repoAccess.id,
-      authorId: user.id,
-      title: body.title,
-      body: body.body,
-      categoryId: body.categoryId || null,
-      number: (maxNumber?.max || 0) + 1,
-    })
-    .returning();
+    const [created] = await tx
+      .insert(discussions)
+      .values({
+        repositoryId: repoAccess.id,
+        authorId: user.id,
+        title: body.title,
+        body: body.body,
+        categoryId: body.categoryId || null,
+        number: (maxNumber?.max || 0) + 1,
+      })
+      .returning();
+    return created;
+  }, { isolationLevel: 'read committed' });
 
   const enriched = await enrichDiscussion(inserted, user.id);
   return c.json(enriched);
