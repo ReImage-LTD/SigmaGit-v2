@@ -41,3 +41,13 @@ describe('search pagination', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 });
+
+test('organization search uses the canonical owner for every repository resource', () => {
+  for (const type of ['repos', 'issues', 'prs']) {
+    const compiled = dialect.sqlToQuery(buildSearchQuery('needle', type, 20, 0, null));
+    expect(compiled.sql).toContain('LEFT JOIN "organizations"');
+    expect(compiled.sql).toContain("'/' || coalesce(\"organizations\".\"name\", \"users\".\"username\") || '/'");
+  }
+  const users = dialect.sqlToQuery(buildSearchQuery('needle', 'users', 20, 0, null));
+  expect(users.sql).not.toContain('"organizations"');
+});

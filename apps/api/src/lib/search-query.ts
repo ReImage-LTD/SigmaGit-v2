@@ -1,6 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm';
 import {
-  repositories, users, issues, pullRequests, repositoryCollaborators,
+  repositories, organizations, users, issues, pullRequests, repositoryCollaborators,
   organizationMembers, teamMembers, teamRepositories,
 } from '@sigmagit/db';
 import type { AccessUser } from './access';
@@ -29,12 +29,16 @@ export const SEARCH_TYPES = ['all', 'repositories', 'repos', 'issues', 'pulls', 
 export function buildSearchQuery(query: string, type: string, limit: number, offset: number, user: AccessUser): SQL {
   const queries: SQL[] = [];
   const readable = readableRepositoryCondition(user);
-  const repoJoin = sql`FROM ${repositories} INNER JOIN ${users} ON ${users.id} = ${repositories.ownerId}`;
+  const ownerName = sql`coalesce(${organizations.name}, ${users.username})`;
+  const ownerAvatar = sql`CASE WHEN ${repositories.organizationId} IS NOT NULL
+    THEN ${organizations.avatarUrl} ELSE ${users.avatarUrl} END`;
+  const repoJoin = sql`FROM ${repositories} INNER JOIN ${users} ON ${users.id} = ${repositories.ownerId}
+    LEFT JOIN ${organizations} ON ${organizations.id} = ${repositories.organizationId}`;
   if (['all', 'repositories', 'repos'].includes(type)) {
     queries.push(sql`SELECT 'repository' AS type, ${repositories.id}::text AS id,
       ${repositories.name} AS title, ${repositories.description} AS description,
-      '/' || ${users.username} || '/' || ${repositories.name} AS url,
-      json_build_object('username', ${users.username}, 'avatarUrl', ${users.avatarUrl}) AS owner,
+      '/' || ${ownerName} || '/' || ${repositories.name} AS url,
+      json_build_object('username', ${ownerName}, 'avatarUrl', ${ownerAvatar}) AS owner,
       NULL::json AS repository, NULL::text AS state, NULL::integer AS number,
       ${repositories.createdAt} AS "createdAt"
       ${repoJoin}
@@ -48,9 +52,9 @@ export function buildSearchQuery(query: string, type: string, limit: number, off
     const table = resource.table;
     queries.push(sql`SELECT ${resource.type}::text AS type, ${table.id}::text AS id,
       ${table.title} AS title, left(${table.body}, 200) AS description,
-      '/' || ${users.username} || '/' || ${repositories.name} || '/' || ${resource.path} || '/' || ${table.number} AS url,
+      '/' || ${ownerName} || '/' || ${repositories.name} || '/' || ${resource.path} || '/' || ${table.number} AS url,
       NULL::json AS owner,
-      json_build_object('name', ${repositories.name}, 'owner', ${users.username}) AS repository,
+      json_build_object('name', ${repositories.name}, 'owner', ${ownerName}) AS repository,
       ${table.state}::text AS state, ${table.number} AS number, ${table.createdAt} AS "createdAt"
       ${repoJoin} INNER JOIN ${table} ON ${table.repositoryId} = ${repositories.id}
       WHERE ${table.searchVector} @@ websearch_to_tsquery('english', ${query}) AND ${readable}`);
