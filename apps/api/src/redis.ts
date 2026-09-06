@@ -1,3 +1,4 @@
+import { createGitCacheGeneration } from './lib/git-cache-generation';
 import { createRecoveringConnection } from './lib/recovering-connection';
 import { createClient, type RedisClientType } from 'redis';
 import { config } from './config';
@@ -211,34 +212,4 @@ export const appCache = {
   },
 };
 
-export const repoCache = {
-  branchesKey: (userId: string, repoName: string) => cacheKey('branches', userId, repoName),
-
-  commitsKey: (userId: string, repoName: string, branch: string, limit: number, skip: number) =>
-    cacheKey('commits', userId, repoName, branch, String(limit), String(skip)),
-
-  commitCountKey: (userId: string, repoName: string, branch: string) =>
-    cacheKey('commit-count', userId, repoName, branch),
-
-  treeKey: (userId: string, repoName: string, branch: string, path: string) =>
-    cacheKey('tree', userId, repoName, branch, path || 'root'),
-
-  fileKey: (userId: string, repoName: string, branch: string, path: string) =>
-    cacheKey('file', userId, repoName, branch, path),
-
-  refKey: (userId: string, repoName: string, ref: string) => cacheKey('ref', userId, repoName, ref),
-
-  async invalidateRepo(userId: string, repoName: string): Promise<void> {
-    await deleteCachePattern(`sigmagit:*:${userId}:${repoName}:*`);
-    await deleteCachePattern(`sigmagit:*:${userId}:${repoName}`);
-  },
-
-  async invalidateBranch(userId: string, repoName: string, branch: string): Promise<void> {
-    await deleteCachePattern(`sigmagit:commits:${userId}:${repoName}:${branch}:*`);
-    await deleteCache(repoCache.commitCountKey(userId, repoName, branch));
-    await deleteCachePattern(`sigmagit:tree:${userId}:${repoName}:${branch}:*`);
-    await deleteCachePattern(`sigmagit:file:${userId}:${repoName}:${branch}:*`);
-    await deleteCache(repoCache.refKey(userId, repoName, branch));
-    await deleteCache(repoCache.branchesKey(userId, repoName));
-  },
-};
+export const repoCache = createGitCacheGeneration(getRedisCache);

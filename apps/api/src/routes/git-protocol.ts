@@ -1038,12 +1038,7 @@ app.post("/:owner/:name/git-receive-pack", async (c) => {
 
     if (updates.length > 0) {
       // HEAD is set when the repository is created or its default branch changes.
-      for (const update of updates) {
-        const branch = update.ref.startsWith("refs/heads/")
-          ? update.ref.replace("refs/heads/", "")
-          : update.ref;
-        await repoCache.invalidateBranch(repo.storageOwnerId, repo.name, branch);
-      }
+      await repoCache.invalidateRepo(repo.storageOwnerId, repo.name);
 
       // Sync workflows and trigger CI — fire-and-forget
       for (const update of updates) {

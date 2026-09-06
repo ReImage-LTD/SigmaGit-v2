@@ -1,3 +1,6 @@
+import { createSingleFlight } from '../lib/single-flight';
+import { requestSignal } from '../lib/request-context';
+import { mapConcurrent } from '../lib/map-concurrent';
 import git from "isomorphic-git";
 import { createS3Fs, type S3Fs } from "./s3-fs";
 import { getRepoPrefix } from "../s3";
@@ -612,8 +615,11 @@ async function generateDiffHunks(
     let binary = false;
     let truncated = false;
 
+    const [oldBlob, newBlob] = await Promise.all([
+      oldOid ? readBlobTextLimited(fs, dir, oldOid) : null,
+      newOid ? readBlobTextLimited(fs, dir, newOid) : null,
+    ]);
     if (oldOid) {
-      const oldBlob = await readBlobTextLimited(fs, dir, oldOid);
       if (!oldBlob) {
         return { hunks: [], truncated: true, binary: false };
       }
@@ -622,7 +628,6 @@ async function generateDiffHunks(
     }
 
     if (newOid) {
-      const newBlob = await readBlobTextLimited(fs, dir, newOid);
       if (!newBlob) {
         return { hunks: [], truncated: true, binary: binary || false };
       }
@@ -765,8 +770,11 @@ async function processChangedFiles(
   let deletions = 0;
   const truncatedFiles = Math.max(0, changedFiles.length - MAX_DIFF_FILES);
 
-  for (const file of changedFiles.slice(0, MAX_DIFF_FILES)) {
-    const fileDiff = await buildFileDiff(fs, dir, file);
+  const diffs = await mapConcurrent(changedFiles.slice(0, MAX_DIFF_FILES), 4, file => {
+    requestSignal()?.throwIfAborted();
+    return buildFileDiff(fs, dir, file);
+  });
+  for (const fileDiff of diffs) {
     additions += fileDiff.additions;
     deletions += fileDiff.deletions;
     files.push(fileDiff);
@@ -995,85 +1003,37 @@ export async function getRefsAdvertisement(
   }
 }
 
+const shareGitLoad = createSingleFlight();
+async function cachedGitLoad<T>(store: GitStore, parts: unknown[], ttl: number, load: () => Promise<T>, cacheable: (value: T) => boolean = () => true): Promise<T> {
+  const key = await repoCache.key(store.ownerId, store.repoName, parts);
+  const flightKey = key ?? repoCache.flightKey(store.ownerId, store.repoName, parts);
+  return shareGitLoad(flightKey, async () => {
+    if (key) {
+      const cached = await getCached<T>(key);
+      if (cached !== null) return cached;
+    }
+    const result = await load();
+    // Never publish a result after all callers have disconnected or timed out.
+    requestSignal()?.throwIfAborted();
+    if (key && result !== null && cacheable(result)) await setCache(key, result, ttl);
+    return result;
+  }, requestSignal());
+}
+
 export async function listBranchesCached(store: GitStore): Promise<string[]> {
-  const cacheKey = repoCache.branchesKey(store.ownerId, store.repoName);
-  const cached = await getCached<string[]>(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const branches = await listBranches(store.fs, store.dir);
-  await setCache(cacheKey, branches, CACHE_TTL.branches);
-  return branches;
+  return cachedGitLoad(store, ['branches'], CACHE_TTL.branches, () => listBranches(store.fs, store.dir));
 }
-
-export async function getCommitsCached(
-  store: GitStore,
-  ref: string,
-  limit: number,
-  skip: number
-): Promise<{ commits: CommitInfo[]; hasMore: boolean }> {
-  const cacheKey = repoCache.commitsKey(store.ownerId, store.repoName, ref, limit, skip);
-  const cached = await getCached<{ commits: CommitInfo[]; hasMore: boolean }>(cacheKey);
-  if (cached && cached.commits && cached.commits.length > 0) {
-    return cached;
-  }
-
-  const result = await getCommits(store.fs, store.dir, ref, limit, skip);
-  if (result.commits.length > 0) {
-    await setCache(cacheKey, result, CACHE_TTL.commits);
-  }
-  return result;
+export async function getCommitsCached(store: GitStore, ref: string, limit: number, skip: number): Promise<{ commits: CommitInfo[]; hasMore: boolean }> {
+  return cachedGitLoad(store, ['commits', ref, limit, skip], CACHE_TTL.commits, () => getCommits(store.fs, store.dir, ref, limit, skip), result => result.commits.length > 0);
 }
-
 export async function getCommitCountCached(store: GitStore, ref: string): Promise<number> {
-  const cacheKey = repoCache.commitCountKey(store.ownerId, store.repoName, ref);
-  const cached = await getCached<number>(cacheKey);
-  if (cached !== null) {
-    return cached;
-  }
-
-  const count = await getCommitCount(store.fs, store.dir, ref);
-  if (count > 0) {
-    await setCache(cacheKey, count, CACHE_TTL.commits);
-  }
-  return count;
+  return cachedGitLoad(store, ['count', ref], CACHE_TTL.commits, () => getCommitCount(store.fs, store.dir, ref), count => count > 0);
 }
-
-export async function getTreeCached(
-  store: GitStore,
-  ref: string,
-  filepath: string
-): Promise<TreeEntry[] | null> {
-  const cacheKey = repoCache.treeKey(store.ownerId, store.repoName, ref, filepath);
-  const cached = await getCached<TreeEntry[]>(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const tree = await getTree(store.fs, store.dir, ref, filepath);
-  if (tree) {
-    await setCache(cacheKey, tree, CACHE_TTL.tree);
-  }
-  return tree;
+export async function getTreeCached(store: GitStore, ref: string, filepath: string): Promise<TreeEntry[] | null> {
+  return cachedGitLoad(store, ['tree', ref, filepath], CACHE_TTL.tree, () => getTree(store.fs, store.dir, ref, filepath));
 }
-
-export async function getFileCached(
-  store: GitStore,
-  ref: string,
-  filepath: string
-): Promise<{ content: string; oid: string } | null> {
-  const cacheKey = repoCache.fileKey(store.ownerId, store.repoName, ref, filepath);
-  const cached = await getCached<{ content: string; oid: string }>(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const file = await getFile(store.fs, store.dir, ref, filepath);
-  if (file && file.content.length <= MAX_FILE_CACHE_BYTES) {
-    await setCache(cacheKey, file, CACHE_TTL.file);
-  }
-  return file;
+export async function getFileCached(store: GitStore, ref: string, filepath: string): Promise<{ content: string; oid: string } | null> {
+  return cachedGitLoad(store, ['file', ref, filepath], CACHE_TTL.file, () => getFile(store.fs, store.dir, ref, filepath), file => !!file && file.content.length <= MAX_FILE_CACHE_BYTES);
 }
 
 export interface BranchComparison {

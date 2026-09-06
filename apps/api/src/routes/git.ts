@@ -6,6 +6,7 @@ import { parseLimit, parseOffset, sanitizePathForGit } from "../lib/validation";
 import { canAccessRepository } from "../lib/access";
 import { resolveRepositoryBySlug, createRepoGitStore } from "../lib/repo-helpers";
 import { deliverWebhookEvent } from "./repo-webhooks";
+import { repoCache } from '../redis';
 import {
   listBranchesCached,
   getCommitsCached,
@@ -139,6 +140,7 @@ app.post("/api/repositories/:owner/:name/branches", requireAuth, async (c) => {
 
   const created = await createBranch(store.fs, store.dir, body.branch, body.fromRef);
   if (!created) return c.json({ error: "Failed to create branch" }, 500);
+  await repoCache.invalidateRepo(store.ownerId, store.repoName);
 
   // Fire webhook
   deliverWebhookEvent(repo.id, "branch", {
@@ -171,6 +173,7 @@ app.delete("/api/repositories/:owner/:name/branches/:branch", requireAuth, async
 
   const deleted = await deleteBranch(store.fs, store.dir, branch);
   if (!deleted) return c.json({ error: "Failed to delete branch" }, 500);
+  await repoCache.invalidateRepo(store.ownerId, store.repoName);
 
   // Invalidate metadata cache
   await db.delete(repoBranchMetadata).where(
@@ -266,6 +269,7 @@ app.post("/api/repositories/:owner/:name/file", requireAuth, async (c) => {
   );
 
   if (!committed) return c.json({ error: "Failed to commit file" }, 500);
+  await repoCache.invalidateRepo(store.ownerId, store.repoName);
 
   await db.update(repoBranchMetadata).set({ updatedAt: new Date() }).where(
     and(eq(repoBranchMetadata.repoId, repo.id), eq(repoBranchMetadata.branch, body.branch))
@@ -330,6 +334,7 @@ app.post("/api/repositories/:owner/:name/tags", requireAuth, async (c) => {
   );
 
   if (!created) return c.json({ error: "Failed to create tag" }, 500);
+  await repoCache.invalidateRepo(store.ownerId, store.repoName);
 
   // Fire webhook
   deliverWebhookEvent(repo.id, "tag", {
@@ -359,6 +364,7 @@ app.delete("/api/repositories/:owner/:name/tags/:tag", requireAuth, async (c) =>
 
   const deleted = await deleteTag(store.fs, store.dir, tag);
   if (!deleted) return c.json({ error: "Failed to delete tag" }, 500);
+  await repoCache.invalidateRepo(store.ownerId, store.repoName);
 
   // Fire webhook
   deliverWebhookEvent(repo.id, "tag", {
