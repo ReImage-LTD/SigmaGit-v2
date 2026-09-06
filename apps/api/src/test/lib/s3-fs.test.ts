@@ -23,3 +23,31 @@ test('directory stat uses a bounded existence query', async () => {
   expect(exists).toHaveBeenCalledWith('repos/u/repo/objects/');
   expect(recursive).not.toHaveBeenCalled();
 });
+
+test('writes invalidate cached missing directories and ancestor stats', async () => {
+  let written = false;
+  spyOn(storage, 'listDirectory').mockImplementation(async () => written ? ['new'] : []);
+  spyOn(storage, 'getObjectSize').mockResolvedValue(null);
+  spyOn(storage, 'prefixExists').mockImplementation(async () => written);
+  spyOn(storage, 'putObject').mockImplementation(async () => { written = true; });
+  const fs = createS3Fs('repos/u/repo').promises;
+  expect(await fs.readdir('objects/ab')).toEqual([]);
+  await expect(fs.stat('objects')).rejects.toThrow('ENOENT');
+  await fs.writeFile('objects/ab/new', 'content');
+  expect(await fs.readdir('objects/ab')).toEqual(['new']);
+  expect((await fs.stat('objects')).isDirectory()).toBe(true);
+});
+
+test('an old directory miss cannot repopulate the cache after a write', async () => {
+  let release!: (entries: string[]) => void;
+  spyOn(storage, 'listDirectory')
+    .mockImplementationOnce(() => new Promise(resolve => { release = resolve; }))
+    .mockResolvedValue(['new']);
+  spyOn(storage, 'putObject').mockResolvedValue(undefined);
+  const fs = createS3Fs('repos/u/repo').promises;
+  const oldRead = fs.readdir('objects/ab');
+  await fs.writeFile('objects/ab/new', 'content');
+  release([]);
+  await oldRead;
+  expect(await fs.readdir('objects/ab')).toEqual(['new']);
+});

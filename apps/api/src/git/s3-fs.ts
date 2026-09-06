@@ -26,6 +26,7 @@ export interface S3FsStats {
 
 export function createS3Fs(basePath: string) {
   const negativeCache = new Map<string, number>();
+  let mutationGeneration = 0;
   const negativeCacheTtlMs = Math.max(1000, config.optimizations.gitNegativeCacheTtlMs);
 
   const isMutableRefPath = (key: string): boolean => {
@@ -51,7 +52,8 @@ export function createS3Fs(basePath: string) {
     return true;
   };
 
-  const markNegative = (key: string): void => {
+  const markNegative = (key: string, generation = mutationGeneration): void => {
+    if (generation !== mutationGeneration) return;
     if (!config.optimizations.gitNegativeCacheEnabled || isMutableRefPath(key)) {
       return;
     }
@@ -60,6 +62,19 @@ export function createS3Fs(basePath: string) {
 
   const clearNegative = (key: string): void => {
     negativeCache.delete(key);
+  };
+
+  const invalidateAncestors = (key: string): void => {
+    mutationGeneration++;
+    let current = key;
+    while (current.length >= basePath.length) {
+      clearNegative('file:' + current);
+      clearNegative('stat:' + current);
+      clearNegative('dir:' + current + '/');
+      const slash = current.lastIndexOf('/');
+      if (slash < 0) break;
+      current = current.slice(0, slash);
+    }
   };
 
   const normalize = (filepath: string): string => {
@@ -102,9 +117,10 @@ export function createS3Fs(basePath: string) {
           err.code = 'ENOENT';
           throw err;
         }
+        const generation = mutationGeneration;
         const data = await getObject(key);
         if (!data) {
-          markNegative(`file:${key}`);
+          markNegative(`file:${key}`, generation);
           const err = new Error(
             `ENOENT: no such file or directory, open '${filepath}'`,
           ) as NodeJS.ErrnoException;
@@ -123,13 +139,13 @@ export function createS3Fs(basePath: string) {
       async writeFile(filepath: string, data: Buffer | Uint8Array | string): Promise<void> {
         const key = normalize(filepath);
         await putObject(key, data instanceof Buffer ? data : Buffer.from(data));
-        clearNegative(`file:${key}`);
-        clearNegative(`stat:${key}`);
+        invalidateAncestors(key);
       },
 
       async unlink(filepath: string): Promise<void> {
         const key = normalize(filepath);
         await deleteObject(key);
+        invalidateAncestors(key);
         markNegative(`file:${key}`);
         markNegative(`stat:${key}`);
       },
@@ -140,8 +156,9 @@ export function createS3Fs(basePath: string) {
         if (hasNegative(`dir:${searchPrefix}`)) {
           return [];
         }
+        const generation = mutationGeneration;
         const entries = await listDirectory(searchPrefix);
-        if (!entries.length) markNegative(`dir:${searchPrefix}`);
+        if (!entries.length) markNegative(`dir:${searchPrefix}`, generation);
         else clearNegative(`dir:${searchPrefix}`);
         return entries;
       },
@@ -153,6 +170,7 @@ export function createS3Fs(basePath: string) {
       async rmdir(filepath: string): Promise<void> {
         const prefix = normalize(filepath);
         await deletePrefix(prefix);
+        invalidateAncestors(prefix);
       },
 
       async stat(filepath: string): Promise<S3FsStats> {
@@ -182,6 +200,7 @@ export function createS3Fs(basePath: string) {
           };
         }
 
+        const generation = mutationGeneration;
         const size = await getObjectSize(key);
         if (size !== null) {
           clearNegative(`file:${key}`);
@@ -222,9 +241,9 @@ export function createS3Fs(basePath: string) {
           };
         }
 
-        markNegative(`stat:${key}`);
-        markNegative(`file:${key}`);
-        markNegative(`dir:${dirPrefix}`);
+        markNegative(`stat:${key}`, generation);
+        markNegative(`file:${key}`, generation);
+        markNegative(`dir:${dirPrefix}`, generation);
         const err = new Error(
           `ENOENT: no such file or directory, stat '${filepath}'`,
         ) as NodeJS.ErrnoException;
