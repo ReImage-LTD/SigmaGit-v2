@@ -1,3 +1,6 @@
+import { isGitProtocolPath, isGitReceivePath } from '../lib/request-path';
+import { RequestBodyTooLargeError } from '../lib/request-body';
+import { boundedStream } from '../lib/bounded-stream';
 import { createMiddleware } from 'hono/factory';
 
 const MAX_REQUEST_SIZE = 100 * 1024 * 1024; // 100MB
@@ -34,9 +37,9 @@ export const BODY_LIMITS = {
 } as const;
 
 export function resolveBodyLimitForPath(path: string): number {
-  if (path.includes('git-receive-pack')) return BODY_LIMITS.gitPack;
-  if (path.startsWith('/v2/') || path.includes('/registry')) return BODY_LIMITS.registryChunk;
-  if (path.includes('/avatar') || path.includes('/settings/avatar')) return BODY_LIMITS.avatar;
+  if (isGitReceivePath(path)) return BODY_LIMITS.gitPack;
+  if (path.startsWith('/v2/')) return BODY_LIMITS.registryChunk;
+  if (path === '/api/settings/avatar') return BODY_LIMITS.avatar;
   if (path.includes('/webhooks')) return BODY_LIMITS.webhook;
   if (path.startsWith('/api/')) return BODY_LIMITS.jsonDefault;
   return BODY_LIMITS.absoluteMax;
@@ -49,7 +52,7 @@ export function shouldRejectRequest(): boolean {
     const used = usage.heapUsed;
     // Only enforce the threshold once the heap has grown to a meaningful size,
     // otherwise Bun's small startup heap makes the ratio always look critical.
-    return total >= MIN_HEAP_TO_ENFORCE && (used / total) > MEMORY_THRESHOLD;
+    return total >= MIN_HEAP_TO_ENFORCE && used / total > MEMORY_THRESHOLD;
   } catch {
     return false;
   }
@@ -80,8 +83,8 @@ export const memoryMiddleware = createMiddleware(async (c, next) => {
 
 /**
  * Pure check used by middleware and unit tests.
- * Rejects oversized Content-Length and non-git chunked bodies without a length
- * (so clients cannot bypass the 100MB cap via Transfer-Encoding: chunked).
+ * Rejects invalid framing and oversized declared bodies. Actual bytes are
+ * independently counted by requestSizeMiddleware, including chunked bodies.
  */
 export function evaluateRequestSizeLimit(options: {
   method: string;
@@ -90,12 +93,13 @@ export function evaluateRequestSizeLimit(options: {
   transferEncoding?: string | null;
 }): { allowed: boolean; status?: number; error?: string } {
   const { path, contentLength, transferEncoding } = options;
-  const isGitReceive = path.includes('git-receive-pack');
-  const te = (transferEncoding || '').toLowerCase();
+  const isGitReceive = isGitReceivePath(path);
+  if (contentLength != null && transferEncoding)
+    return { allowed: false, status: 400, error: 'Conflicting body framing headers' };
 
   if (contentLength) {
-    const size = parseInt(contentLength, 10);
-    if (!Number.isFinite(size) || size < 0) {
+    const size = Number(contentLength);
+    if (!/^\d+$/.test(contentLength) || !Number.isSafeInteger(size) || size < 0) {
       return { allowed: false, status: 400, error: 'Invalid Content-Length' };
     }
     const pathLimit = resolveBodyLimitForPath(path);
@@ -108,16 +112,6 @@ export function evaluateRequestSizeLimit(options: {
     return { allowed: true };
   }
 
-  // Chunked bodies without Content-Length can bypass static size checks.
-  // Git receive-pack may stream; all other paths must advertise length.
-  if (te.includes('chunked') && !isGitReceive) {
-    return {
-      allowed: false,
-      status: 411,
-      error: 'Content-Length header is required for chunked requests',
-    };
-  }
-
   return { allowed: true };
 }
 
@@ -128,40 +122,63 @@ export const requestSizeMiddleware = createMiddleware(async (c, next) => {
     contentLength: c.req.header('content-length'),
     transferEncoding: c.req.header('transfer-encoding'),
   });
-
   if (!result.allowed) {
-    console.warn(`[Request] Rejected: ${result.error}`);
-    return c.json({ error: result.error }, (result.status ?? 413) as 413);
+    void c.req.raw.body?.cancel().catch(() => {});
+    return c.json({ error: result.error }, (result.status ?? 413) as 400 | 413);
   }
-
+  let exceeded = false;
+  const raw = c.req.raw;
+  if (raw.body) {
+    const limit = resolveBodyLimitForPath(c.req.path);
+    c.req.raw = new Request(raw, {
+      body: boundedStream(raw.body, limit, (bytes) => {
+        exceeded = true;
+        return new RequestBodyTooLargeError(bytes, limit);
+      }),
+    });
+  }
   await next();
+  // Body parsers or handlers may catch the stream exception. Preserve 413.
+  if (exceeded) {
+    c.header('Content-Length', undefined);
+    c.header('Content-Encoding', undefined);
+    c.header('ETag', undefined);
+    const response = c.json({ error: 'Request body too large' }, 413);
+    void c.res.body?.cancel().catch(() => {});
+    c.res = response;
+  }
 });
 
 export const responseSizeMiddleware = createMiddleware(async (c, next) => {
   await next();
-
-  const responseSize = c.res.headers.get('content-length');
-
-  if (responseSize) {
-    const size = parseInt(responseSize, 10);
-
-    if (size > MAX_RESPONSE_SIZE) {
-      // Fail closed for oversized JSON/API responses that advertise length.
-      console.warn(`[Response] Size ${size} exceeds limit ${MAX_RESPONSE_SIZE}`);
-      if (!c.req.path.includes('git-upload-pack') && !c.req.path.includes('git-receive-pack')) {
-        c.res = new Response(JSON.stringify({ error: 'Response too large' }), {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-    }
+  // Git and registry transfers have their own object/pack/blob limits.
+  if (isGitProtocolPath(c.req.path) || c.req.path.startsWith('/v2/')) return;
+  const responseSize = Number(c.res.headers.get('content-length'));
+  if (responseSize > MAX_RESPONSE_SIZE) {
+    c.header('Content-Length', undefined);
+    c.header('Content-Encoding', undefined);
+    c.header('ETag', undefined);
+    const response = c.json({ error: 'Response too large' }, 500);
+    void c.res.body?.cancel().catch(() => {});
+    c.res = response;
+    return;
+  }
+  if (c.res.body) {
+    const response = c.res;
+    c.res = new Response(
+      boundedStream(response.body!, MAX_RESPONSE_SIZE, () => new Error('Response too large')),
+      {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      },
+    );
   }
 });
-
 export const gitLimitsMiddleware = createMiddleware(async (c, next) => {
   const path = c.req.path;
 
-  if (path.includes('git-receive-pack')) {
+  if (isGitReceivePath(path)) {
     c.set('maxObjects', GIT_MAX_OBJECTS_PER_PUSH);
     c.set('maxDeltaDepth', GIT_MAX_DELTA_DEPTH);
   }
@@ -169,7 +186,11 @@ export const gitLimitsMiddleware = createMiddleware(async (c, next) => {
   await next();
 });
 
-export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMsg: string): Promise<T> {
+export function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  errorMsg: string,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timeoutId = setTimeout(() => {
       reject(new Error(errorMsg));
@@ -214,7 +235,7 @@ export function scheduleGC() {
 export function forceGCIfNeeded(): void {
   const usage = getMemoryUsage();
 
-  if (usage.percent > 0.90) {
+  if (usage.percent > 0.9) {
     console.warn(`[Memory] Usage at ${(usage.percent * 100).toFixed(2)}%, forcing GC`);
     scheduleGC();
   }

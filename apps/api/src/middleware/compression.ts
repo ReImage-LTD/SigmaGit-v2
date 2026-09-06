@@ -1,7 +1,5 @@
-import { Readable, pipeline } from 'node:stream';
 import { createMiddleware } from 'hono/factory';
 import { MAX_COMPRESS_BYTES } from './limits';
-import { createGzip } from 'node:zlib';
 
 const COMPRESSIBLE = /^(?:application\/(?:json|javascript|xml)(?:;|$)|text\/)/i;
 const MIN_SIZE = 1024;
@@ -16,12 +14,9 @@ function shouldSkipCompression(path: string): boolean {
   return GIT_PATH_PATTERN.test(path);
 }
 
-function gzipWebStream(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
-  const nodeReadable = Readable.fromWeb(body);
-  const gzip = createGzip();
-  // Forward source failures and cancel upstream when the response is abandoned.
-  pipeline(nodeReadable, gzip, () => {});
-  return Readable.toWeb(gzip) as ReadableStream<Uint8Array>;
+function gzipWebStream(body: ReadableStream<Uint8Array<ArrayBuffer>>): ReadableStream<Uint8Array> {
+  // Keep errors and cancellation in the same Web Streams pipeline.
+  return body.pipeThrough(new CompressionStream('gzip'));
 }
 
 function acceptsGzip(header: string): boolean {

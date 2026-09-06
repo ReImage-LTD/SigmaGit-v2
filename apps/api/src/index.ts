@@ -108,8 +108,8 @@ app.use("*", requestSizeMiddleware);
 app.use("*", gitLimitsMiddleware);
 app.use("*", requestTimeoutMiddleware());
 app.use("*", rateLimitMiddleware);
-app.use("*", responseSizeMiddleware);
 app.use("*", compressionMiddleware);
+app.use("*", responseSizeMiddleware);
 
 mountRoutes(app);
 

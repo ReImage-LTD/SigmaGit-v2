@@ -32,15 +32,14 @@ describe('evaluateRequestSizeLimit', () => {
     expect(r.status).toBe(413);
   });
 
-  it('rejects chunked non-git requests without Content-Length', () => {
+  it('permits chunked requests for the byte-counting middleware to enforce', () => {
     const r = evaluateRequestSizeLimit({
       method: 'POST',
       path: '/api/migrations',
       contentLength: null,
       transferEncoding: 'chunked',
     });
-    expect(r.allowed).toBe(false);
-    expect(r.status).toBe(411);
+    expect(r.allowed).toBe(true);
   });
 
   it('allows DELETE without Content-Length (no body)', () => {

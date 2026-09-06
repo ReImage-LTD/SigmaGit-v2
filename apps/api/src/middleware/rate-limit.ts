@@ -89,7 +89,17 @@ export function isAuthenticated(c: RateLimitContext): boolean {
   return Boolean(c.get('user'));
 }
 
+const clientIps = new WeakMap<object, string>();
+
 export function getClientIp(c: RateLimitContext): string {
+  const cached = clientIps.get(c);
+  if (cached) return cached;
+  const ip = resolveClientIp(c);
+  clientIps.set(c, ip);
+  return ip;
+}
+
+function resolveClientIp(c: RateLimitContext): string {
   let peer: string | null = null;
   try {
     peer = normalizeIp(getConnInfo(c).remote.address);
