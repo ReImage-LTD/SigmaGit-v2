@@ -7,7 +7,7 @@ import { writeRateLimit } from "../middleware/rate-limit";
 import { parseLimit, parseOffset } from "../lib/validation";
 import { canAccessRepository } from "../lib/access";
 import { resolveRepositoryBySlug, getStorageOwnerId, invalidateRepositorySlugCache } from "../lib/repo-helpers";
-import { putObject, deletePrefix, getRepoPrefix, copyPrefix, listObjects } from "../s3";
+import { putObject, deletePrefix, getRepoPrefix, copyPrefix } from "../s3";
 import { repoCache } from "../redis";
 import { createGitStore } from "../git";
 
@@ -951,9 +951,6 @@ app.delete("/api/repositories/:id", requireAuth, async (c) => {
 
   console.log(`[API] Deleting repository ${user.id}/${repo.name}`);
   const repoPrefix = getRepoPrefix(getStorageOwnerId(repo), repo.name);
-
-  const keys = await listObjects(repoPrefix);
-  console.log(`[API] Found ${keys.length} objects to delete`);
 
   await deletePrefix(repoPrefix);
   console.log(`[API] Deleted all objects for repository`);

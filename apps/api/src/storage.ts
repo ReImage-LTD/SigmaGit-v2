@@ -4,6 +4,7 @@ import {
   GetObjectCommand,
   PutObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   ListObjectsV2Command,
   HeadObjectCommand,
   CopyObjectCommand,
@@ -250,46 +251,29 @@ export class S3StorageBackend implements StorageBackend {
 
   async deletePrefix(prefix: string): Promise<void> {
     prefix = directoryPrefix(prefix);
-    if (!this.client) {
-      throw new Error('S3 is not configured');
-    }
-
-    const baseBatchSize = Math.max(1, Math.min(50, config.optimizations.s3AdaptiveMaxConcurrency));
-    const adaptiveEnabled = config.optimizations.s3AdaptiveDeleteEnabled;
+    if (!this.client) throw new Error('S3 is not configured');
+    const client = this.client;
     let continuationToken: string | undefined;
-
     do {
-      const response = await this.client.send(
-        new ListObjectsV2Command({
-          Bucket: this.bucket,
-          Prefix: prefix,
-          ContinuationToken: continuationToken,
-        }),
-        { abortSignal: requestSignal() },
-      );
-
-      const keys =
-        response.Contents?.map((obj) => obj.Key).filter((key): key is string => !!key) ?? [];
-
-      for (let i = 0; i < keys.length; i += baseBatchSize) {
-        const batch = keys.slice(i, i + baseBatchSize);
-        if (adaptiveEnabled) {
-          await runAdaptiveBatch(
-            batch,
-            baseBatchSize,
-            Math.max(1, config.optimizations.s3AdaptiveMinConcurrency),
-            Math.max(1, config.optimizations.s3AdaptiveMaxConcurrency),
-            (key) => this.delete(key),
-          );
-        } else {
-          await Promise.all(batch.map((key) => this.delete(key)));
-        }
-
-        if ((i / baseBatchSize) % 10 === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        }
+      const response = await client.send(new ListObjectsV2Command({
+        Bucket: this.bucket, Prefix: prefix, ContinuationToken: continuationToken, MaxKeys: 1000,
+      }), {abortSignal: requestSignal()});
+      let pending = response.Contents?.flatMap(object => object.Key ? [{Key: object.Key}] : []) ?? [];
+      if (pending.length) {
+        await runAdaptiveBatch([0], 1, 1, 1, async () => {
+          const result = await client.send(new DeleteObjectsCommand({
+            Bucket: this.bucket, Delete: {Objects: pending, Quiet: true},
+          }), {abortSignal: requestSignal()});
+          const errors = result.Errors ?? [];
+          if (!errors.length) return;
+          const permanent = errors.find(error => !isThrottleLikeError({name: error.Code}));
+          if (permanent) throw new Error('S3 bulk delete failed: ' + permanent.Code);
+          const failed = new Set(errors.map(error => error.Key));
+          pending = pending.filter(object => failed.has(object.Key));
+          if (!pending.length) throw new Error('S3 returned an invalid delete failure response');
+          throw Object.assign(new Error('S3 bulk delete throttled'), {name: 'SlowDown'});
+        });
       }
-
       continuationToken = response.NextContinuationToken;
     } while (continuationToken);
   }

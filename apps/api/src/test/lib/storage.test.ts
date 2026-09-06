@@ -17,11 +17,11 @@ test('directory prefixes reject roots and traversal', () => {
 test('delete only selects children of the exact repository', async () => {
   const deleted: string[] = [];
   const keys = ['repos/u/repo/HEAD', 'repos/u/repo-backup/HEAD'];
-  spyOn(S3Client.prototype, 'send').mockImplementation((async (command: { constructor: { name: string }; input: { Prefix: string; Key: string } }) => {
+  spyOn(S3Client.prototype, 'send').mockImplementation((async (command: { constructor: { name: string }; input: { Prefix: string; Key: string; Delete: {Objects: Array<{Key: string}>} } }) => {
     if (command.constructor.name === 'ListObjectsV2Command') {
       return { Contents: keys.filter(key => key.startsWith(command.input.Prefix)).map(Key => ({Key})) };
     }
-    deleted.push(command.input.Key);
+    deleted.push(...command.input.Delete.Objects.map(object => object.Key));
     return {};
   }) as unknown as S3Client['send']);
   await backend().deletePrefix('repos/u/repo');
@@ -105,4 +105,25 @@ test('multipart copy preserves metadata and completes ordered contiguous ranges'
   expect(ranges[0]).toBe('bytes=0-134217727');
   expect(ranges.at(-1)).toBe('bytes=5368709120-5368709120');
   expect(completed.map(p => p.PartNumber)).toEqual(Array.from({length: 41}, (_, i) => i + 1));
+});
+
+test('bulk delete uses one request per page and retries only failed keys', async () => {
+  const batches: string[][] = [];
+  spyOn(S3Client.prototype, 'send').mockImplementation((async (command: {constructor: {name: string}; input: {Delete: {Objects: Array<{Key: string}>}}}) => {
+    if (command.constructor.name === 'ListObjectsV2Command') return {Contents: Array.from({length: 1000}, (_, i) => ({Key: 'repos/u/repo/' + i}))};
+    const keys = command.input.Delete.Objects.map(object => object.Key);
+    batches.push(keys);
+    return batches.length === 1 ? {Errors: [{Key: keys[99], Code: 'SlowDown'}]} : {};
+  }) as unknown as S3Client['send']);
+  await backend().deletePrefix('repos/u/repo');
+  expect(batches.map(batch => batch.length)).toEqual([1000, 1]);
+  expect(batches[1]).toEqual(['repos/u/repo/99']);
+});
+
+test('bulk delete propagates per-key errors even in successful HTTP responses', async () => {
+  spyOn(S3Client.prototype, 'send').mockImplementation((async (command: {constructor: {name: string}}) => {
+    if (command.constructor.name === 'ListObjectsV2Command') return {Contents: [{Key: 'repos/u/repo/HEAD'}]};
+    return {Errors: [{Key: 'repos/u/repo/HEAD', Code: 'AccessDenied'}]};
+  }) as unknown as S3Client['send']);
+  await expect(backend().deletePrefix('repos/u/repo')).rejects.toThrow('AccessDenied');
 });
