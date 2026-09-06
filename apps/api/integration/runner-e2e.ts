@@ -165,6 +165,8 @@ jobs:
   await checkOrganizationAuthorization(baseURL);
   const { checkProjectAuthorization } = await import('./project-authorization');
   await checkProjectAuthorization(baseURL);
+  const { checkMigrationClaims } = await import('./migration-claims');
+  await checkMigrationClaims(ownerId);
   await checkReleaseAuthorization({
     baseURL,
     ownerId,

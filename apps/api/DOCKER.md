@@ -31,7 +31,9 @@ The supplied Caddyfile contains deployment-specific hostnames. Set those to your
 domains before exposing the stack. Restrict trusted proxy CIDRs to your actual
 proxy network. PostgreSQL and Redis must remain on the private Docker network.
 Keep repository import workers disabled unless configured with their credential
-encryption key; run at most one import-worker instance.
+encryption key. Workers atomically claim pending imports with PostgreSQL row locks,
+so multiple instances cannot process the same pending job. Claims interrupted by
+a process crash require operator review before requeueing; they are not automatically retried.
 
 ## Start and upgrade
 

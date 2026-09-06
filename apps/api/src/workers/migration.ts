@@ -8,6 +8,7 @@ import {
 } from '@sigmagit/db';
 import { resolveAndValidateOutbound } from '../security/ssrf';
 import { decryptCredential } from '../lib/credential-cipher';
+import { claimMigration } from '../lib/migration-claims';
 import { mkdir, rm, writeFile, stat } from 'fs/promises';
 import { getRepoPrefix, putObject } from '../s3';
 import { eq, and } from 'drizzle-orm';
@@ -69,35 +70,26 @@ async function cleanupSshKey(keyPath: string) {
   }
 }
 
-export async function processMigration(migrationId: string) {
-  const [migration] = await db
-    .select()
-    .from(repositoryMigrations)
-    .where(eq(repositoryMigrations.id, migrationId));
-  if (!migration) {
-    console.error(`[Migration] Migration ${migrationId} not found`);
-    return;
-  }
-
-  // Get credentials if they exist
-  const [creds] = await db
-    .select()
-    .from(migrationCredentials)
-    .where(eq(migrationCredentials.migrationId, migrationId));
-  let authToken: string | undefined;
-  let sshKey: string | undefined;
-  let authType = 'token';
-  if (creds) {
-    authType = creds.authType || 'token';
-    if (creds.authToken) authToken = await decryptCredential(creds.authToken);
-    if (creds.sshKey) sshKey = await decryptCredential(creds.sshKey);
-  }
+export async function processMigration(id?: string) {
+  const migration = await claimMigration(id);
+  if (!migration) return;
+  const migrationId = migration.id;
 
   try {
-    await db
-      .update(repositoryMigrations)
-      .set({ status: 'cloning', progress: 10, startedAt: new Date(), updatedAt: new Date() })
-      .where(eq(repositoryMigrations.id, migrationId));
+    // Get credentials if they exist
+    const [creds] = await db
+      .select()
+      .from(migrationCredentials)
+      .where(eq(migrationCredentials.migrationId, migrationId));
+    let authToken: string | undefined;
+    let sshKey: string | undefined;
+    let authType = 'token';
+    if (creds) {
+      authType = creds.authType || 'token';
+      if (creds.authToken) authToken = await decryptCredential(creds.authToken);
+      if (creds.sshKey) sshKey = await decryptCredential(creds.sshKey);
+    }
+
     const [user] = await db.select().from(users).where(eq(users.id, migration.userId));
     if (!user) throw new Error('User not found');
 
@@ -323,20 +315,13 @@ export async function startMigrationWorker() {
   migrationInterval = setInterval(() => {
     if (activeMigration) return;
     activeMigration = (async () => {
-    try {
-      const pendingMigrations = await db
-        .select()
-        .from(repositoryMigrations)
-        .where(eq(repositoryMigrations.status, 'pending'))
-        .limit(1);
-
-      for (const migration of pendingMigrations) {
-        console.log(`[Migration] Processing migration ${migration.id}...`);
-        await processMigration(migration.id);
+      try {
+        await processMigration();
+      } catch (error) {
+        console.error('[Migration] Worker error:', error);
       }
-    } catch (error) {
-      console.error('[Migration] Worker error:', error);
-    }
-    })().finally(() => { activeMigration = undefined; });
+    })().finally(() => {
+      activeMigration = undefined;
+    });
   }, 10000); // Check every 10 seconds
 }
