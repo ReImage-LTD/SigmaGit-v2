@@ -27,14 +27,14 @@ describe('consistent repository permissions', () => {
   });
 
   it('still checks memberships when writing public repositories', async () => {
-    const select = spyOn(db, 'select').mockImplementation(() => {
+    const select = spyOn(db, 'select').mockImplementation((() => {
       const builder = {
         from: () => builder,
         innerJoin: () => builder,
         where: () => Promise.resolve([]),
       };
       return builder as unknown as ReturnType<typeof db.select>;
-    });
+    }) as typeof db.select);
     expect(
       await filterAccessibleRepos([{ ...repo, visibility: 'public' }], { id: 'user' }, true),
     ).toEqual([]);
@@ -62,7 +62,7 @@ describe('consistent repository permissions', () => {
       [{ organizationId: 'org', role: 'owner' }],
       [{ repositoryId: 'repo', permission: 'admin' }],
     ];
-    spyOn(db, 'select').mockImplementation(() => {
+    spyOn(db, 'select').mockImplementation((() => {
       const result = rows.shift();
       const builder = {
         from: () => builder,
@@ -70,7 +70,7 @@ describe('consistent repository permissions', () => {
         where: () => Promise.resolve(result),
       };
       return builder as unknown as ReturnType<typeof db.select>;
-    });
+    }) as typeof db.select);
     expect(await filterAccessibleRepos([repo], { id: 'admin', role: 'admin' }, true)).toEqual([]);
   });
 });
