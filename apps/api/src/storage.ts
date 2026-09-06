@@ -7,8 +7,10 @@ import {
   HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { readdir, readFile, writeFile, unlink, mkdir, stat, rm } from 'node:fs/promises';
-import { withTimeout, MAX_LOCAL_LIST_KEYS } from './middleware/limits';
+import { MAX_LOCAL_LIST_KEYS } from './middleware/limits';
 import { join, dirname, resolve, sep } from 'node:path';
+import { requestSignal } from './lib/request-context';
+import { boundedStream } from './lib/bounded-stream';
 import { config } from './config';
 
 function isThrottleLikeError(error: unknown): boolean {
@@ -70,13 +72,12 @@ export interface StorageBackend {
   getStream(key: string): Promise<ReadableStream | null>;
 }
 
-class S3StorageBackend implements StorageBackend {
+export class S3StorageBackend implements StorageBackend {
   type: StorageType = 's3';
   private client: S3Client | null = null;
   private bucket: string;
 
-  constructor() {
-    const { s3 } = config.storage;
+  constructor(s3 = config.storage.s3) {
     this.bucket = s3.bucket;
 
     if (s3.endpoint && s3.region && s3.accessKeyId && s3.secretAccessKey) {
@@ -98,22 +99,23 @@ class S3StorageBackend implements StorageBackend {
     }
 
     try {
-      const response = await withTimeout(
-        this.client.send(
-          new GetObjectCommand({
-            Bucket: this.bucket,
-            Key: key,
-          }),
-        ),
-        30000,
-        'S3 get operation timeout',
+      const signal = requestSignal(AbortSignal.timeout(30_000));
+      const response = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+        { abortSignal: signal },
       );
-
       if (!response.Body) {
         return null;
       }
 
-      const bytes = await response.Body.transformToByteArray();
+      const bytes = await new Response(
+        boundedStream(
+          response.Body.transformToWebStream(),
+          Infinity,
+          () => new Error('Storage response too large'),
+          signal,
+        ),
+      ).arrayBuffer();
       return Buffer.from(bytes);
     } catch (error: any) {
       if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
@@ -135,6 +137,7 @@ class S3StorageBackend implements StorageBackend {
         Body: body,
         ContentType: contentType,
       }),
+      { abortSignal: requestSignal() },
     );
   }
 
@@ -148,6 +151,7 @@ class S3StorageBackend implements StorageBackend {
         Bucket: this.bucket,
         Key: key,
       }),
+      { abortSignal: requestSignal() },
     );
   }
 
@@ -162,6 +166,7 @@ class S3StorageBackend implements StorageBackend {
           Bucket: this.bucket,
           Key: key,
         }),
+        { abortSignal: requestSignal() },
       );
       return true;
     } catch (error: any) {
@@ -183,6 +188,7 @@ class S3StorageBackend implements StorageBackend {
           Bucket: this.bucket,
           Key: key,
         }),
+        { abortSignal: requestSignal() },
       );
       return response.ContentLength ?? null;
     } catch (error: any) {
@@ -208,6 +214,7 @@ class S3StorageBackend implements StorageBackend {
           Prefix: prefix,
           ContinuationToken: continuationToken,
         }),
+        { abortSignal: requestSignal() },
       );
 
       if (response.Contents) {
@@ -240,6 +247,7 @@ class S3StorageBackend implements StorageBackend {
           Prefix: prefix,
           ContinuationToken: continuationToken,
         }),
+        { abortSignal: requestSignal() },
       );
 
       const keys =
@@ -286,6 +294,7 @@ class S3StorageBackend implements StorageBackend {
           Prefix: sourcePrefix,
           ContinuationToken: continuationToken,
         }),
+        { abortSignal: requestSignal() },
       );
 
       const keys =
@@ -336,6 +345,7 @@ class S3StorageBackend implements StorageBackend {
           Bucket: this.bucket,
           Key: key,
         }),
+        { abortSignal: requestSignal() },
       );
 
       if (!response.Body) {

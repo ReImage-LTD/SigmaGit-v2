@@ -1,8 +1,9 @@
+import { requestSignal } from './lib/request-context';
 import { consumeWsTicket, issueWsTicket } from './security/ws-ticket';
 import { requireAuth, type AuthVariables } from './middleware/auth';
 import { getAllowedOrigins } from './config';
 import { db, sessions } from '@sigmagit/db';
-import type { ServerWebSocket } from 'bun';
+import type { Server, ServerWebSocket } from 'bun';
 import { eq, and, gt } from 'drizzle-orm';
 import { Hono } from 'hono';
 
@@ -180,7 +181,7 @@ wsTicketRoutes.post('/api/ws-ticket', requireAuth, async (c) => {
 
 export async function handleWebSocketUpgrade(
   request: Request,
-  server: any,
+  server: Server<WebSocketData>,
 ): Promise<Response | undefined> {
   const url = new URL(request.url);
 
@@ -242,6 +243,7 @@ export async function handleWebSocketUpgrade(
       });
     }
 
+    requestSignal(request.signal)?.throwIfAborted();
     const upgraded = server.upgrade(request, {
       data: {
         userId,

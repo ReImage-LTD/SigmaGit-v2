@@ -210,6 +210,8 @@ export type AppConfig = {
   };
   maxConcurrentRest: number;
   maxConcurrentGit: number;
+  requestTimeoutMs: number;
+  transferTimeoutMs: number;
   email: {
     provider: 'resend' | 'smtp';
     resendApiKey: string | undefined;
@@ -329,6 +331,8 @@ function loadConfig(): AppConfig {
     },
     maxConcurrentRest: envPositiveInt('MAX_CONCURRENT_REQUESTS', 50),
     maxConcurrentGit: envPositiveInt('MAX_CONCURRENT_GIT', 15),
+    requestTimeoutMs: envPositiveInt('REQUEST_TIMEOUT_MS', 30_000),
+    transferTimeoutMs: envPositiveInt('TRANSFER_TIMEOUT_MS', 240_000),
     email: {
       provider: (process.env.EMAIL_PROVIDER as 'resend' | 'smtp') || 'resend',
       resendApiKey: process.env.RESEND_API_KEY,

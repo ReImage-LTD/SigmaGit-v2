@@ -207,46 +207,4 @@ export const rateLimitMiddleware = createMiddleware(async (c, next) => {
 
 export const generalRateLimit = rateLimitMiddleware;
 export const writeRateLimit = rateLimitMiddleware;
-let activeRestRequests = 0;
-let activeGitRequests = 0;
-
-function isConcurrencyExcludedPath(path: string): boolean {
-  return path === '/health' || path === '/api/health' || path === '/api/status' || path === '/ws';
-}
-
-export function concurrencyLimiter() {
-  return createMiddleware(async (c, next) => {
-    const path = c.req.path;
-
-    if (isConcurrencyExcludedPath(path)) {
-      await next();
-      return;
-    }
-
-    const isGit = isGitProtocolPath(path);
-    const maxConcurrent = isGit ? config.maxConcurrentGit : config.maxConcurrentRest;
-    const activeCount = isGit ? activeGitRequests : activeRestRequests;
-
-    if (activeCount >= maxConcurrent) {
-      return c.json({ error: 'Server busy, try again later', retryAfter: 5 }, 503);
-    }
-
-    if (isGit) {
-      activeGitRequests++;
-    } else {
-      activeRestRequests++;
-    }
-
-    try {
-      await next();
-    } finally {
-      if (isGit) {
-        activeGitRequests--;
-      } else {
-        activeRestRequests--;
-      }
-    }
-  });
-}
-
 export default rateLimitMiddleware;

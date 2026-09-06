@@ -10,6 +10,7 @@ function createPool(role: RedisRole) {
       const client = createClient({
         url: role === 'session' ? config.redisSessionUrl : config.redisCacheUrl,
         disableOfflineQueue: true,
+        commandOptions: { timeout: 3000 },
         socket: { connectTimeout: 3000, reconnectStrategy: false },
       }) as RedisClientType;
       client.on('error', () => pool.invalidate(client));

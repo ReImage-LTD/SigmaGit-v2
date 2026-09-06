@@ -9,6 +9,7 @@
 
 import { promises as dns } from 'node:dns';
 import { isIP } from 'node:net';
+import { requestSignal } from '../lib/request-context';
 
 const BLOCKED_HOSTNAMES = new Set([
   'localhost',
@@ -224,11 +225,13 @@ export async function guardedFetch(
     pinAddress = true,
     ...init
   } = options;
+  init.signal = requestSignal(init.signal);
 
   let current = rawUrl;
   let redirects = 0;
 
   while (true) {
+    init.signal?.throwIfAborted();
     const resolved = await resolveAndValidateOutbound(current, { requireHttps }, lookup);
     if (!resolved.ok || !resolved.url || !resolved.addresses?.length) {
       throw new Error(resolved.error || 'Blocked outbound URL');

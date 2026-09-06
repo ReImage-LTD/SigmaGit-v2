@@ -97,7 +97,7 @@ export function evaluateRequestSizeLimit(options: {
   if (contentLength != null && transferEncoding)
     return { allowed: false, status: 400, error: 'Conflicting body framing headers' };
 
-  if (contentLength) {
+  if (contentLength !== undefined && contentLength !== null) {
     const size = Number(contentLength);
     if (!/^\d+$/.test(contentLength) || !Number.isSafeInteger(size) || size < 0) {
       return { allowed: false, status: 400, error: 'Invalid Content-Length' };
@@ -131,10 +131,15 @@ export const requestSizeMiddleware = createMiddleware(async (c, next) => {
   if (raw.body) {
     const limit = resolveBodyLimitForPath(c.req.path);
     c.req.raw = new Request(raw, {
-      body: boundedStream(raw.body, limit, (bytes) => {
-        exceeded = true;
-        return new RequestBodyTooLargeError(bytes, limit);
-      }),
+      body: boundedStream(
+        raw.body,
+        limit,
+        (bytes) => {
+          exceeded = true;
+          return new RequestBodyTooLargeError(bytes, limit);
+        },
+        raw.signal,
+      ),
     });
   }
   await next();

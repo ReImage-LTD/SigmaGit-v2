@@ -4,19 +4,20 @@ import { config, getAllowedOrigins } from "./config";
 import { initAuth } from "./auth";
 import { getRedisSession, getRedisCache } from "./redis";
 import { mountRoutes } from "./routes";
-import { handleWebSocketUpgrade, websocketHandlers } from "./websocket";
+import { handleWebSocketUpgrade, websocketHandlers, WS_MAX_MESSAGE_BYTES } from "./websocket";
 import {
   memoryMiddleware,
   requestSizeMiddleware,
   gitLimitsMiddleware,
   responseSizeMiddleware,
+  BODY_LIMITS,
 } from "./middleware/limits";
-import rateLimitMiddleware, { concurrencyLimiter, ingressRateLimit } from "./middleware/rate-limit";
+import rateLimitMiddleware, { ingressRateLimit } from "./middleware/rate-limit";
 import { authMiddleware } from "./middleware/auth";
 import { requestIdMiddleware } from "./middleware/request-id";
-import { requestTimeoutMiddleware } from "./middleware/timeout";
+import { createRequestGuard } from "./lib/request-guard";
 import { compressionMiddleware } from "./middleware/compression";
-import { securityHeadersMiddleware } from "./middleware/security-headers";
+import { securityHeadersMiddleware, buildSecurityHeaders } from "./middleware/security-headers";
 import { csrfMiddleware } from "./middleware/csrf";
 import { sanitizeQueryForLog } from "./lib/log-sanitize";
 import { startMigrationWorker } from "./workers/migration";
@@ -93,7 +94,9 @@ app.use("*", createMiddleware(async (c, next) => {
   await next();
 }));
 
+app.use("*", memoryMiddleware);
 app.use("*", ingressRateLimit);
+app.use("*", requestSizeMiddleware);
 
 app.use("*", createMiddleware(async (c, next) => {
   await initAuth();
@@ -102,11 +105,7 @@ app.use("*", createMiddleware(async (c, next) => {
 
 app.use("*", authMiddleware);
 app.use("*", csrfMiddleware);
-app.use("*", concurrencyLimiter());
-app.use("*", memoryMiddleware);
-app.use("*", requestSizeMiddleware);
 app.use("*", gitLimitsMiddleware);
-app.use("*", requestTimeoutMiddleware());
 app.use("*", rateLimitMiddleware);
 app.use("*", compressionMiddleware);
 app.use("*", responseSizeMiddleware);
@@ -121,9 +120,36 @@ startRunnerHealthWorker();
 
 const port = config.port;
 
+type ApiServer = Parameters<typeof handleWebSocketUpgrade>[1];
+const guardedFetch = createRequestGuard(
+  async (request: Request, server: ApiServer, original: Request) => {
+    if (new URL(request.url).pathname === '/ws') return handleWebSocketUpgrade(request, server);
+    // Request wrappers do not retain Bun transport metadata. Resolve it using
+    // the native request while Hono reads the bounded, cancellable request.
+    return app.fetch(request, { server: { requestIP: () => server.requestIP(original) } });
+  },
+  {
+    maxRest: config.maxConcurrentRest,
+    maxGit: config.maxConcurrentGit,
+    timeoutMs: config.requestTimeoutMs,
+    transferTimeoutMs: config.transferTimeoutMs,
+    errorResponse: (request, status, error) => {
+      const headers = new Headers(buildSecurityHeaders(config.isProduction));
+      const origin = request.headers.get('origin');
+      headers.set('Vary', 'Origin');
+      if (origin && getAllowedOrigins().includes(origin)) {
+        headers.set('Access-Control-Allow-Origin', origin);
+        headers.set('Access-Control-Allow-Credentials', 'true');
+      }
+      if (status === 503) headers.set('Retry-After', '5');
+      return Response.json({ error }, { status, headers });
+    },
+  },
+);
+
 export default {
   port,
-  fetch: async (request: Request, server: any) => {
+  fetch: async (request: Request, server: ApiServer) => {
     if (request.method === "OPTIONS") {
       const origin = request.headers.get("origin");
       const allowedOrigins = getAllowedOrigins();
@@ -145,13 +171,9 @@ export default {
       });
     }
 
-    const wsResponse = await handleWebSocketUpgrade(request, server);
-    if (wsResponse !== undefined) {
-      return wsResponse;
-    }
-
-    return app.fetch(request, server);
+    return guardedFetch(request, server);
   },
-  websocket: websocketHandlers,
+  websocket: { ...websocketHandlers, maxPayloadLength: WS_MAX_MESSAGE_BYTES },
+  maxRequestBodySize: BODY_LIMITS.absoluteMax,
   idleTimeout: 255,
 };

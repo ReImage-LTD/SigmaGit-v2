@@ -116,6 +116,7 @@ describe('socket and proxy identity', () => {
 
   it('canonicalizes IPv6 and mapped addresses and matches IPv6 proxy networks', () => {
     expect(normalizeIp('::ffff:192.0.2.1')).toBe('192.0.2.1');
+    expect(normalizeIp('fe80::1%eth0')).toBeNull();
     expect(normalizeIp('2001:0db8:0:0:0:0:0:1')).toBe('2001:db8::1');
     expect(ipInCidr('2001:db8::1', '2001:db8::/32')).toBe(true);
     expect(ipInCidr('2001:db9::1', '2001:db8::/32')).toBe(false);

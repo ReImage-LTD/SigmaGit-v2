@@ -2,10 +2,7 @@
  * Read a request body from a stream with a hard byte limit.
  * Aborts early if the limit is exceeded instead of buffering unbounded data.
  */
-export async function readRequestBodyLimited(
-  request: Request,
-  maxBytes: number
-): Promise<Buffer> {
+export async function readRequestBodyLimited(request: Request, maxBytes: number): Promise<Buffer> {
   if (!request.body) {
     return Buffer.alloc(0);
   }
@@ -19,12 +16,18 @@ export async function readRequestBodyLimited(
   }
 
   const reader = request.body.getReader();
+  const onAbort = () => {
+    void reader.cancel(request.signal.reason).catch(() => {});
+  };
+  request.signal.addEventListener('abort', onAbort, { once: true });
   const chunks: Buffer[] = [];
   let total = 0;
 
   try {
     while (true) {
+      request.signal.throwIfAborted();
       const { done, value } = await reader.read();
+      request.signal.throwIfAborted();
       if (done) break;
 
       total += value.byteLength;
@@ -35,6 +38,7 @@ export async function readRequestBodyLimited(
       chunks.push(Buffer.from(value));
     }
   } finally {
+    request.signal.removeEventListener('abort', onAbort);
     try {
       await reader.cancel();
     } catch {
@@ -54,7 +58,7 @@ export async function readRequestBodyLimited(
 export class RequestBodyTooLargeError extends Error {
   constructor(
     public readonly receivedBytes: number,
-    public readonly maxBytes: number
+    public readonly maxBytes: number,
   ) {
     super(`Request body too large: ${receivedBytes} bytes (max ${maxBytes})`);
     this.name = 'RequestBodyTooLargeError';
@@ -64,18 +68,12 @@ export class RequestBodyTooLargeError extends Error {
 /** Alias used by unit tests and new call sites. */
 export const BodyTooLargeError = RequestBodyTooLargeError;
 
-export async function readBodyLimited(
-  request: Request,
-  maxBytes: number
-): Promise<ArrayBuffer> {
+export async function readBodyLimited(request: Request, maxBytes: number): Promise<ArrayBuffer> {
   const buf = await readRequestBodyLimited(request, maxBytes);
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  return Uint8Array.from(buf).buffer;
 }
 
-export async function readJsonLimited<T = unknown>(
-  request: Request,
-  maxBytes: number
-): Promise<T> {
+export async function readJsonLimited<T = unknown>(request: Request, maxBytes: number): Promise<T> {
   const buf = await readRequestBodyLimited(request, maxBytes);
   if (buf.byteLength === 0) {
     throw new SyntaxError('Empty body');

@@ -1,7 +1,7 @@
 import { BlockList, isIP } from 'node:net';
 
 export function normalizeIp(value: string | undefined): string | null {
-  if (!value || !isIP(value)) return null;
+  if (!value || value.includes('%') || !isIP(value)) return null;
   if (isIP(value) === 4) return value;
   const canonical = new URL(`http://[${value}]/`).hostname.slice(1, -1);
   const mapped = /^::ffff:([a-f0-9]+):([a-f0-9]+)$/.exec(canonical);

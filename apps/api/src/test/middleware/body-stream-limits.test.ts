@@ -56,7 +56,7 @@ describe('stream byte limits', () => {
     });
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('aaaaaa');
-    for (const contentLength of ['1oops', '-1', '9007199254740992']) {
+    for (const contentLength of ['', '1oops', '-1', '9007199254740992']) {
       expect(
         evaluateRequestSizeLimit({ path: '/api/test', method: 'POST', contentLength }).status,
       ).toBe(400);

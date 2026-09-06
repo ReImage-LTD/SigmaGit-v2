@@ -1,6 +1,18 @@
-import { getObject, putObject, deleteObject, listObjects, objectExists, getObjectSize, deletePrefix, getObjectStream, getRepoPrefix, copyPrefix } from './storage';
-import { Upload } from '@aws-sdk/lib-storage';
+import {
+  getObject,
+  putObject,
+  deleteObject,
+  listObjects,
+  objectExists,
+  getObjectSize,
+  deletePrefix,
+  getObjectStream,
+  getRepoPrefix,
+  copyPrefix,
+} from './storage';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { requestSignal } from './lib/request-context';
+import { Upload } from '@aws-sdk/lib-storage';
 import { config } from './config';
 
 const s3Configured = Boolean(
@@ -8,7 +20,7 @@ const s3Configured = Boolean(
   config.storage.s3.region &&
   config.storage.s3.bucket &&
   config.storage.s3.accessKeyId &&
-  config.storage.s3.secretAccessKey
+  config.storage.s3.secretAccessKey,
 );
 
 export const s3Client = s3Configured
@@ -25,25 +37,46 @@ export const s3Client = s3Configured
 
 export const bucket = config.storage.s3.bucket;
 
-export { getRepoPrefix, getObject, putObject, deleteObject, listObjects, objectExists, getObjectSize, deletePrefix, getObjectStream, copyPrefix };
+export {
+  getRepoPrefix,
+  getObject,
+  putObject,
+  deleteObject,
+  listObjects,
+  objectExists,
+  getObjectSize,
+  deletePrefix,
+  getObjectStream,
+  copyPrefix,
+};
 
 export const uploadMultipart = async (
   key: string,
   body: Buffer | Uint8Array | ReadableStream,
-  contentType?: string
+  contentType?: string,
 ): Promise<void> => {
   if (!s3Client) {
     throw new Error('S3 is not configured');
   }
-  const upload = new Upload({
-    client: s3Client,
-    params: {
-      Bucket: bucket,
-      Key: key,
-      Body: body,
-      ContentType: contentType,
-    },
-  });
+  const signal = requestSignal();
+  signal?.throwIfAborted();
+  const abortController = new AbortController();
+  const onAbort = () => abortController.abort();
+  signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    const upload = new Upload({
+      client: s3Client,
+      abortController,
+      params: {
+        Bucket: bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+      },
+    });
 
-  await upload.done();
+    await upload.done();
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
+  }
 };
