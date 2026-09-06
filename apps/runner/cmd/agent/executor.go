@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -180,20 +181,20 @@ func (e *Executor) runWithAct(
 
 	// Build runner config
 	runnerCfg := &runner.Config{
-		Actor:          "runner",
-		Workdir:        repoDir,
-		EventName:      job.EventName,
-		EventPath:      eventPath,
-		DefaultBranch:  job.Branch,
+		Actor:           "runner",
+		Workdir:         repoDir,
+		EventName:       job.EventName,
+		EventPath:       eventPath,
+		DefaultBranch:   job.Branch,
 		ReuseContainers: false,
-		ForcePull:      false,
-		LogOutput:      true,
-		JSONLogger:     false,
-		Env:            map[string]string{},
-		Secrets:        map[string]string{},
-		Platforms:      map[string]string{},
-		AutoRemove:     true,
-		UseGitIgnore:   true,
+		ForcePull:       false,
+		LogOutput:       true,
+		JSONLogger:      false,
+		Env:             map[string]string{},
+		Secrets:         map[string]string{},
+		Platforms:       map[string]string{},
+		AutoRemove:      true,
+		UseGitIgnore:    true,
 	}
 
 	r, err := runner.New(runnerCfg)
@@ -248,7 +249,7 @@ func (e *Executor) failJob(job *JobPayload, reason string) error {
 	}}); err != nil {
 		log.Printf("[Executor] Warning: failed to report failure for job %s: %v", job.ID, err)
 	}
-	return fmt.Errorf(reason)
+	return errors.New(reason)
 }
 
 // jobLoggerFactory implements runner.JobLoggerFactory so the plan executor gets a logger from context.

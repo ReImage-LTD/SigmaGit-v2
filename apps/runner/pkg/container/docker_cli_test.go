@@ -378,10 +378,10 @@ func TestParseWithExpose(t *testing.T) {
 		"8080:9090":           "invalid port format for --expose: 8080:9090",
 		"/tcp":                "invalid range format for --expose: /tcp, error: empty string specified for ports",
 		"/udp":                "invalid range format for --expose: /udp, error: empty string specified for ports",
-		"NaN/tcp":             `invalid range format for --expose: NaN/tcp, error: strconv.ParseUint: parsing "NaN": invalid syntax`,
-		"NaN-NaN/tcp":         `invalid range format for --expose: NaN-NaN/tcp, error: strconv.ParseUint: parsing "NaN": invalid syntax`,
-		"8080-NaN/tcp":        `invalid range format for --expose: 8080-NaN/tcp, error: strconv.ParseUint: parsing "NaN": invalid syntax`,
-		"1234567890-8080/tcp": `invalid range format for --expose: 1234567890-8080/tcp, error: strconv.ParseUint: parsing "1234567890": value out of range`,
+		"NaN/tcp":             `invalid range format for --expose: NaN/tcp, error: invalid start port 'NaN': invalid syntax`,
+		"NaN-NaN/tcp":         `invalid range format for --expose: NaN-NaN/tcp, error: invalid start port 'NaN': invalid syntax`,
+		"8080-NaN/tcp":        `invalid range format for --expose: 8080-NaN/tcp, error: invalid end port 'NaN': invalid syntax`,
+		"1234567890-8080/tcp": `invalid range format for --expose: 1234567890-8080/tcp, error: invalid start port '1234567890': value out of range (0–65535)`,
 	}
 	valids := map[string][]nat.Port{
 		"8080/tcp":      {"8080/tcp"},
