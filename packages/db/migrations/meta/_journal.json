@@ -47,15 +47,29 @@
     {
       "idx": 6,
       "version": "7",
-      "when": 1788700303849,
-      "tag": "0006_stable_repository_storage",
+      "when": 1773000000001,
+      "tag": "0005a_organization_schema",
       "breakpoints": true
     },
     {
       "idx": 7,
       "version": "7",
+      "when": 1788700303849,
+      "tag": "0006_stable_repository_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
       "when": 1788705625388,
       "tag": "0007_api_key_configuration",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788709592286,
+      "tag": "0008_production_schema",
       "breakpoints": true
     }
   ]
