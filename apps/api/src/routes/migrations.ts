@@ -62,51 +62,29 @@ app.post("/api/migrations", requireAuth, zValidator("json", migrationCreateBodyS
     }
   }
 
-  // Create migration record
-  const [migration] = await db
-    .insert(repositoryMigrations)
-    .values({
-      userId: user.id,
-      source,
-      sourceUrl: finalSourceUrl,
-      sourceBaseUrl: sourceBaseUrl || null,
-      sourceOwner: sourceOwner || null,
-      sourceRepo: sourceRepo || null,
-      status: "pending",
-      progress: 0,
-      options: options || {},
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .returning();
-
-  // Store credentials if provided (AES-GCM only; fails closed without key)
+  // Encrypt before publishing a pending job; the worker sees both rows or neither.
+  let encrypted: Omit<typeof migrationCredentials.$inferInsert, 'migrationId'> | undefined;
   if (credentials && (credentials.authToken || credentials.sshKey)) {
     try {
-      await db.insert(migrationCredentials).values({
-        migrationId: migration.id,
+      encrypted = {
         authToken: credentials.authToken ? await encryptCredential(credentials.authToken) : null,
-        authType: credentials.authType || "token",
+        authType: credentials.authType || 'token',
         sshKey: credentials.sshKey ? await encryptCredential(credentials.sshKey) : null,
-        sshKeyPassphrase: credentials.sshKeyPassphrase
-          ? await encryptCredential(credentials.sshKeyPassphrase)
-          : null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-    } catch (err) {
-      // Clean up migration if credential encryption fails
-      await db.delete(repositoryMigrations).where(eq(repositoryMigrations.id, migration.id));
-      console.error("[Migrations] Credential encryption failed:", err);
-      return c.json(
-        {
-          error:
-            "Failed to store migration credentials. Ensure MIGRATION_CREDENTIALS_KEY is configured.",
-        },
-        500
-      );
+        sshKeyPassphrase: credentials.sshKeyPassphrase ? await encryptCredential(credentials.sshKeyPassphrase) : null,
+      };
+    } catch {
+      return c.json({ error: 'Failed to encrypt import credentials' }, 500);
     }
   }
+  const migration = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(repositoryMigrations).values({
+      userId: user.id, source, sourceUrl: finalSourceUrl!,
+      sourceBaseUrl: sourceBaseUrl || null, sourceOwner: sourceOwner || null,
+      sourceRepo: sourceRepo || null, status: 'pending', progress: 0, options: options || {},
+    }).returning();
+    if (encrypted) await tx.insert(migrationCredentials).values({ ...encrypted, migrationId: created.id });
+    return created;
+  });
 
   return c.json({ data: migration });
 });
