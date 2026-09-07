@@ -93,7 +93,7 @@ export async function processMigration(id?: string) {
       const rows = await db.update(repositoryMigrations).set({ updatedAt: new Date() })
         .where(migrationOwnership(migration.id, migration.startedAt!)).returning({ id: repositoryMigrations.id });
       if (!rows.length) controller.abort(new Error('Import cancelled or ownership lost'));
-    } catch { controller.abort(new Error('Import lease renewal failed')); }
+    } catch (error) { controller.abort(error instanceof Error ? error : new Error('Import lease renewal failed')); }
     finally { renewing = false; }
   }, 2000);
   try { await requestContext.run(controller.signal, () => processClaimedMigration(migration, controller.signal)); }

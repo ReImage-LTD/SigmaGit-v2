@@ -11,7 +11,12 @@ export async function checkImportDisk(path: string, maxBytes: number): Promise<n
       const full = join(dir, entry.name);
       if (entry.isDirectory()) await visit(full);
       else if (entry.isFile()) {
-        total += (await stat(full)).size;
+        try { total += (await stat(full)).size; }
+        catch (error) {
+          // Git atomically renames temporary pack files while cloning.
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+          throw error;
+        }
         if (total > maxBytes) throw new Error('Import exceeds disk budget');
       } else throw new Error('Unsupported import filesystem entry');
     }
