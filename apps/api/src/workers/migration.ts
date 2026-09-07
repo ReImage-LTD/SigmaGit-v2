@@ -9,7 +9,8 @@ import {
 import { resolveAndValidateOutbound } from '../security/ssrf';
 import { decryptCredential } from '../lib/credential-cipher';
 import { copyImportedGit } from '../lib/import-storage';
-import { claimMigration } from '../lib/migration-claims';
+import { requestContext } from '../lib/request-context';
+import { claimMigration, migrationOwnership, expireMigrationClaims } from '../lib/migration-claims';
 import { mkdir, rm, writeFile, stat } from 'fs/promises';
 import { getRepoPrefix, putObject, deletePrefix } from '../s3';
 import { eq, and } from 'drizzle-orm';
@@ -71,10 +72,32 @@ async function cleanupSshKey(keyPath: string) {
   }
 }
 
+const activeControllers = new Set<AbortController>();
 export async function processMigration(id?: string) {
+  await expireMigrationClaims();
   const migration = await claimMigration(id);
-  if (!migration) return;
+  if (!migration?.startedAt) return;
+  const controller = new AbortController();
+  activeControllers.add(controller);
+  let renewing = false;
+  const timer = setInterval(async () => {
+    if (renewing) return;
+    renewing = true;
+    try {
+      const rows = await db.update(repositoryMigrations).set({ updatedAt: new Date() })
+        .where(migrationOwnership(migration.id, migration.startedAt!)).returning({ id: repositoryMigrations.id });
+      if (!rows.length) controller.abort(new Error('Import cancelled or ownership lost'));
+    } catch { controller.abort(new Error('Import lease renewal failed')); }
+    finally { renewing = false; }
+  }, 2000);
+  try { await requestContext.run(controller.signal, () => processClaimedMigration(migration, controller.signal)); }
+  finally { clearInterval(timer); activeControllers.delete(controller); }
+}
+
+async function processClaimedMigration(migration: typeof repositoryMigrations.$inferSelect, signal: AbortSignal) {
   const migrationId = migration.id;
+  const ownership = migrationOwnership(migrationId, migration.startedAt!);
+  const tempRepoPath = join(TEMP_DIR, migrationId + '-' + migration.startedAt!.getTime());
   let stagedPrefix: string | undefined;
   let published = false;
 
@@ -96,7 +119,6 @@ export async function processMigration(id?: string) {
     const [user] = await db.select().from(users).where(eq(users.id, migration.userId));
     if (!user) throw new Error('User not found');
 
-    const tempRepoPath = join(TEMP_DIR, migrationId);
     await mkdir(tempRepoPath, { recursive: true });
 
     // SSRF: resolve DNS and pin to a public address so git cannot rebind later.
@@ -157,10 +179,14 @@ export async function processMigration(id?: string) {
       stdout: 'ignore',
       stderr: 'pipe',
     });
+    const kill = () => cloneProcess.kill('SIGKILL');
+    signal.addEventListener('abort', kill, { once: true });
+    if (signal.aborted) kill();
     const [exitCode, stderr] = await Promise.all([
       cloneProcess.exited,
       new Response(cloneProcess.stderr).text(),
-    ]);
+    ]).finally(() => signal.removeEventListener('abort', kill));
+    signal.throwIfAborted();
     if (keyPath) await cleanupSshKey(keyPath);
 
     if (exitCode !== 0) {
@@ -181,7 +207,7 @@ export async function processMigration(id?: string) {
     await db
       .update(repositoryMigrations)
       .set({ progress: 50, status: 'importing', updatedAt: new Date() })
-      .where(eq(repositoryMigrations.id, migrationId));
+      .where(ownership);
 
     const repoName =
       migration.sourceRepo ||
@@ -229,27 +255,24 @@ export async function processMigration(id?: string) {
     if (await verify.exited !== 0) throw new Error('Imported repository failed integrity validation');
     const storageOwnerId = randomUUID();
     stagedPrefix = getRepoPrefix(storageOwnerId, normalizedName);
-    await copyImportedGit(tempRepoPath, (key, body) => putObject(stagedPrefix + '/' + key, body));
-    const [repo] = await db.insert(repositories).values({
-      name: normalizedName, description: options.description || null,
-      visibility: options.visibility || 'private', ownerId: user.id,
-      organizationId, storageOwnerId,
-    }).returning();
+    await copyImportedGit(tempRepoPath, async (key, body) => { signal.throwIfAborted(); await putObject(stagedPrefix + '/' + key, body); });
+    await db.transaction(async (tx) => {
+      signal.throwIfAborted();
+      const [owned] = await tx.select({ id: repositoryMigrations.id }).from(repositoryMigrations).where(ownership).for('update');
+      if (!owned) throw new Error('Import cancelled or ownership lost');
+      const [repo] = await tx.insert(repositories).values({
+        name: normalizedName, description: options.description || null,
+        visibility: options.visibility || 'private', ownerId: user.id,
+        organizationId, storageOwnerId,
+      }).returning();
+      await tx.update(repositoryMigrations).set({ repositoryId: repo.id, status: 'completed', progress: 100, completedAt: new Date(), updatedAt: new Date() }).where(ownership);
+    });
     published = true;
-
-    await db
-      .update(repositoryMigrations)
-      .set({ repositoryId: repo.id, progress: 90, updatedAt: new Date() })
-      .where(eq(repositoryMigrations.id, migrationId));
-    await db
-      .update(repositoryMigrations)
-      .set({ status: 'completed', progress: 100, completedAt: new Date(), updatedAt: new Date() })
-      .where(eq(repositoryMigrations.id, migrationId));
 
     console.log(`[Migration] Migration ${migrationId} completed`);
     await rm(tempRepoPath, { recursive: true, force: true });
   } catch (error) {
-    if (stagedPrefix && !published) await deletePrefix(stagedPrefix).catch(cleanupError => console.error("[Migration] Staging cleanup failed", cleanupError));
+    if (stagedPrefix && !published) await requestContext.run(new AbortController().signal, () => deletePrefix(stagedPrefix!)).catch(cleanupError => console.error("[Migration] Staging cleanup failed", cleanupError));
     console.error(`[Migration] Migration ${migrationId} failed:`, error);
     await db
       .update(repositoryMigrations)
@@ -258,10 +281,9 @@ export async function processMigration(id?: string) {
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
         updatedAt: new Date(),
       })
-      .where(eq(repositoryMigrations.id, migrationId));
+      .where(ownership);
     try {
-      const tempRepoPath = join(TEMP_DIR, migrationId);
-      await stat(tempRepoPath);
+        await stat(tempRepoPath);
       await rm(tempRepoPath, { recursive: true, force: true });
     } catch {
       /* ignore */
@@ -275,6 +297,7 @@ let activeMigration: Promise<void> | undefined;
 export async function stopMigrationWorker() {
   clearInterval(migrationInterval);
   migrationInterval = undefined;
+  for (const controller of activeControllers) controller.abort(new Error('API shutting down'));
   await activeMigration;
 }
 

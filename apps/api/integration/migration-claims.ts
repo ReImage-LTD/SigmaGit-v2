@@ -1,4 +1,4 @@
-import { claimMigration } from '../src/lib/migration-claims';
+import { claimMigration, expireMigrationClaims, migrationOwnership } from '../src/lib/migration-claims';
 import { db, repositoryMigrations } from '@sigmagit/db';
 import { eq, inArray } from 'drizzle-orm';
 import assert from 'node:assert/strict';
@@ -57,6 +57,18 @@ export async function checkMigrationClaims(userId: string) {
     });
     assert.equal((await claimMigration())?.id, ids[0]);
     console.log('PASS import claims skip a locked job and leave it available after unlock');
+    const [owned] = await db.select().from(repositoryMigrations).where(eq(repositoryMigrations.id, ids[0]));
+    await db.update(repositoryMigrations).set({ updatedAt: new Date(Date.now() - 120_000) }).where(eq(repositoryMigrations.id, ids[0]));
+    await expireMigrationClaims();
+    const staleWrites = await db.update(repositoryMigrations).set({ status: 'completed' })
+      .where(migrationOwnership(ids[0], owned.startedAt!)).returning();
+    assert.equal(staleWrites.length, 0);
+    await db.update(repositoryMigrations).set({ status: 'pending', startedAt: null }).where(eq(repositoryMigrations.id, ids[0]));
+    const retry = await claimMigration(ids[0]);
+    assert(retry?.startedAt);
+    assert.equal((await db.update(repositoryMigrations).set({ status: 'completed' })
+      .where(migrationOwnership(ids[0], owned.startedAt!)).returning()).length, 0);
+    console.log('PASS expired and superseded import owners cannot publish late results');
   } finally {
     await db.delete(repositoryMigrations).where(inArray(repositoryMigrations.id, ids));
   }

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db, repositoryMigrations, migrationCredentials } from "@sigmagit/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { requireAuth, type AuthVariables } from "../middleware/auth";
 import { parseLimit, parseOffset } from "../lib/validation";
 import { encryptCredential } from "../lib/credential-cipher";
@@ -176,10 +176,12 @@ app.post("/api/migrations/:id/cancel", requireAuth, async (c) => {
     return c.json({ error: "Cannot cancel completed migration" }, 400);
   }
 
-  await db
+  const cancelled = await db
     .update(repositoryMigrations)
     .set({ status: "failed", errorMessage: "Cancelled by user", updatedAt: new Date() })
-    .where(eq(repositoryMigrations.id, id));
+    .where(and(eq(repositoryMigrations.id, id), eq(repositoryMigrations.userId, user.id), inArray(repositoryMigrations.status, ['pending', 'cloning', 'importing'])))
+    .returning({ id: repositoryMigrations.id });
+  if (!cancelled.length) return c.json({ error: 'Import already finished' }, 409);
 
   return c.json({ success: true });
 });
@@ -202,16 +204,23 @@ app.delete("/api/migrations/:id", requireAuth, async (c) => {
     return c.json({ error: "Migration not found" }, 404);
   }
 
-  await db
-    .delete(migrationCredentials)
-    .where(eq(migrationCredentials.migrationId, id));
-
-  await db.delete(repositoryMigrations).where(eq(repositoryMigrations.id, id));
+  const deleted = await db.delete(repositoryMigrations)
+    .where(and(eq(repositoryMigrations.id, id), eq(repositoryMigrations.userId, user.id), inArray(repositoryMigrations.status, ['completed', 'failed'])))
+    .returning({ id: repositoryMigrations.id });
+  if (!deleted.length) return c.json({ error: 'Cancel the import before deleting it' }, 409);
 
   return c.json({ success: true });
 });
 
 // Normalized repo shape for list-repos responses
+app.post('/api/migrations/:id/retry', requireAuth, async (c) => {
+  const rows = await db.update(repositoryMigrations).set({ status: 'pending', progress: 0, errorMessage: null, startedAt: null, completedAt: null, updatedAt: new Date() })
+    .where(and(eq(repositoryMigrations.id, c.req.param('id')), eq(repositoryMigrations.userId, c.get('user')!.id), eq(repositoryMigrations.status, 'failed')))
+    .returning({ id: repositoryMigrations.id });
+  if (!rows.length) return c.json({ error: 'Only failed imports can be retried' }, 409);
+  return c.json({ success: true });
+});
+
 interface ListRepoItem {
   id: string;
   fullName: string;
