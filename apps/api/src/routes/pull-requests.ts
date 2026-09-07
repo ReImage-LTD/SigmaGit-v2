@@ -22,7 +22,14 @@ import { createGitStore, getCommits, getTree, getCommitDiff, performMerge, squas
 import { deliverWebhookEvent } from "./repo-webhooks";
 import { triggerWorkflows } from "../workflows/trigger";
 
+import { withRepositoryLock } from '../lib/repository-lock';
 const app = new Hono<{ Variables: AuthVariables }>();
+
+app.use('/api/pulls/:id/merge', requireAuth, async (c, next) => {
+  const pr = await db.query.pullRequests.findFirst({ where: eq(pullRequests.id, c.req.param('id')!) });
+  if (!pr) return c.json({ error: 'Pull request not found' }, 404);
+  await withRepositoryLock(pr.repositoryId, next);
+});
 
 const VALID_EMOJIS = ["+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"];
 

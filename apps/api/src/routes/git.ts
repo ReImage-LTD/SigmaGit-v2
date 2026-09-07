@@ -7,6 +7,7 @@ import { canAccessRepository } from "../lib/access";
 import { resolveRepositoryBySlug, createRepoGitStore } from "../lib/repo-helpers";
 import { deliverWebhookEvent } from "./repo-webhooks";
 import { repoCache } from '../redis';
+import { withRepositoryLock } from '../lib/repository-lock';
 import {
   listBranchesCached,
   getCommitsCached,
@@ -26,6 +27,14 @@ import {
 } from "../git";
 
 const app = new Hono<{ Variables: AuthVariables }>();
+
+app.use('/api/repositories/:owner/:name/*', async (c, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) return next();
+  if (!c.get('user')) return c.json({ error: 'Unauthorized' }, 401);
+  const repo = await resolveRepositoryBySlug(c.req.param('owner')!, c.req.param('name')!);
+  if (!repo) return c.json({ error: 'Repository not found' }, 404);
+  await withRepositoryLock(repo.id, next);
+});
 
 async function getForkCount(repoId: string): Promise<number> {
   const [countRow] = await db
