@@ -1327,6 +1327,9 @@ export const repositoryMigrations = pgTable(
     errorMessage: text("error_message"),
     options: jsonb("options").$type<{
       importIssues?: boolean;
+      visibility?: 'public' | 'private';
+      description?: string;
+      organizationId?: string;
       importPRs?: boolean;
       importWiki?: boolean;
       importLabels?: boolean;

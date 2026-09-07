@@ -187,6 +187,9 @@ export const migrationCreateBodySchema = z
     sourceOwner: z.string().max(200).optional(),
     sourceRepo: z.string().max(200).optional(),
     options: z.object({
+      visibility: z.enum(['public', 'private']).default('private'),
+      description: z.string().max(1000).optional(),
+      organizationId: z.string().uuid().optional(),
       importIssues: z.boolean().optional(),
       importPRs: z.boolean().optional(),
       importWiki: z.boolean().optional(),

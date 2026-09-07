@@ -473,7 +473,7 @@ app.post("/api/repositories/:owner/:name/fork", requireAuth, writeRateLimit, asy
     .values({
       name: targetName,
       description: ("description" in body ? body.description : source.description) ?? null,
-      visibility: "public",
+      visibility: source.visibility,
       ownerId: user.id,
       forkedFromId: source.id,
     })

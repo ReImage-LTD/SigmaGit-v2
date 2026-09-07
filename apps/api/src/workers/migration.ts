@@ -227,7 +227,7 @@ export async function processMigration(id?: string) {
       .values({
         name: normalizedName,
         description: options.description || null,
-        visibility: options.visibility || 'public',
+        visibility: options.visibility || 'private',
         ownerId: user.id,
         organizationId,
       })
