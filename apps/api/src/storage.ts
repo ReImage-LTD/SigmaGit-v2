@@ -20,6 +20,7 @@ import { join, dirname, resolve, sep } from 'node:path';
 import { requestSignal } from './lib/request-context';
 import { boundedStream } from './lib/bounded-stream';
 import { config } from './config';
+import { atomicWriteFile } from './lib/atomic-file';
 
 function isThrottleLikeError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -483,7 +484,7 @@ export class LocalStorageBackend implements StorageBackend {
     const fullPath = this.getFullPath(key);
     const dir = dirname(fullPath);
     await mkdir(dir, { recursive: true });
-    await writeFile(fullPath, body);
+    await atomicWriteFile(fullPath, body, join(this.basePath, '.writes'), requestSignal());
   }
 
   async delete(key: string): Promise<void> {

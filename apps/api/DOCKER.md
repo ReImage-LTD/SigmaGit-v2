@@ -32,8 +32,25 @@ domains before exposing the stack. Restrict trusted proxy CIDRs to your actual
 proxy network. PostgreSQL and Redis must remain on the private Docker network.
 Keep repository import workers disabled unless configured with their credential
 encryption key. Workers atomically claim pending imports with PostgreSQL row locks,
-so multiple instances cannot process the same pending job. Claims interrupted by
-a process crash require operator review before requeueing; they are not automatically retried.
+so multiple instances cannot process the same pending job. Workers renew ownership
+every two seconds; claims idle for 60 seconds fail and can be retried through
+`POST /api/migrations/:id/retry`. Cancellation stops native Git and storage work.
+Imports have a ten-minute deadline, a 1 GiB disk budget checked every two seconds
+(temporary overshoot is possible between checks), and a 128 MiB per-file buffer cap.
+Imported repositories default to private and forks preserve source visibility.
+
+Apply migration `0011_background_tasks` before deploying this version. Webhook
+deliveries use persisted jobs, four concurrent deliveries per API instance and up
+to eight attempts with backoff. Receivers should deduplicate `X-SigmaGit-Delivery`:
+delivery is at least once. Exhausted jobs remain in `background_tasks` with state
+`failed` for inspection and explicit requeueing.
+
+Repository creation, imports, forks and renames prepare storage before publication.
+Deletion removes the repository from the API immediately and queues storage cleanup;
+physical deletion can therefore lag behind the API response. Interrupted staging
+is eligible for cleanup after one hour. Local writes use flushed temporary files
+outside repository namespaces and atomic replacement; Windows sharing violations
+are retried without deleting the previous file.
 
 ## Start and upgrade
 
