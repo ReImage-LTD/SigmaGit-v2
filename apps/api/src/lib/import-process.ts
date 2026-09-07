@@ -27,8 +27,20 @@ export async function checkImportDisk(path: string, maxBytes: number): Promise<n
 
 export async function runImportCommand(cmd: string[], cwd: string, signal: AbortSignal, env = process.env) {
   signal.throwIfAborted();
-  const child = Bun.spawn({ cmd, cwd, env, stdout: 'ignore', stderr: 'pipe' });
-  const kill = () => child.kill('SIGKILL');
+  const child = Bun.spawn({ cmd, cwd, env, stdout: 'ignore', stderr: 'pipe', detached: process.platform !== 'win32' });
+  let terminating: Promise<void> | undefined;
+  const kill = () => {
+    if (terminating) return;
+    terminating = (async () => {
+      if (process.platform === 'win32') {
+        const killer = Bun.spawn(['taskkill', '/PID', String(child.pid), '/T', '/F'], { stdout: 'ignore', stderr: 'ignore' });
+        if (await killer.exited !== 0 && child.exitCode === null) child.kill('SIGKILL');
+      } else {
+        try { process.kill(-child.pid, 'SIGKILL'); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') child.kill('SIGKILL'); }
+      }
+    })().catch(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+  };
   signal.addEventListener('abort', kill, { once: true });
   if (signal.aborted) kill();
   // Drain output without retaining it: Git diagnostics can contain credentials.
@@ -44,5 +56,6 @@ export async function runImportCommand(cmd: string[], cwd: string, signal: Abort
   } finally {
     signal.removeEventListener('abort', kill);
     if (child.exitCode === null) { kill(); await child.exited; }
+    await terminating;
   }
 }

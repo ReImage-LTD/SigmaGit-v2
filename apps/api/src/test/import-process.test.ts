@@ -4,11 +4,12 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-test('import cancellation terminates a stalled process and preserves the reason', async () => {
+test('import cancellation terminates the process tree and preserves the reason', async () => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('deadline')), 100);
   try {
-    await expect(runImportCommand([process.execPath, '-e', 'setInterval(() => {}, 1000)'], tmpdir(), controller.signal)).rejects.toThrow('deadline');
+    const script = 'Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000)"], { stderr: "inherit", stdout: "ignore" }); setInterval(() => {}, 1000)';
+    await expect(runImportCommand([process.execPath, '-e', script], tmpdir(), controller.signal)).rejects.toThrow('deadline');
   } finally { clearTimeout(timer); }
 });
 
