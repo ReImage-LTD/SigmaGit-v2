@@ -5,7 +5,7 @@
  * the HEAD of the given branch and upserts the `workflows` table.
  */
 import { db, repositories, users, workflows } from '@sigmagit/db';
-import { and, eq, notInArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { createGitStore, getTree, getBlobByOid } from '../git';
 import { getStorageOwnerId } from '../lib/repo-helpers';
 
@@ -166,7 +166,7 @@ export async function syncWorkflows(repoId: string): Promise<void> {
       await db
         .update(workflows)
         .set({ active: false })
-        .where(and(eq(workflows.repositoryId, repoId), notInArray(workflows.id, toDeactivate)));
+        .where(and(eq(workflows.repositoryId, repoId), inArray(workflows.id, toDeactivate)));
     }
 
     // Upsert each found workflow

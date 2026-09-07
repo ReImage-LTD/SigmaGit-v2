@@ -1,3 +1,4 @@
+import { createMiddleware } from 'hono/factory';
 import { Hono } from "hono";
 import { db, users, repositories, stars, repoBranchMetadata } from "@sigmagit/db";
 import { eq, sql, and } from "drizzle-orm";
@@ -28,7 +29,7 @@ import {
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
-app.use('/api/repositories/:owner/:name/*', async (c, next) => {
+const gitWriteLock = createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
   if (['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) return next();
   if (!c.get('user')) return c.json({ error: 'Unauthorized' }, 401);
   const repo = await resolveRepositoryBySlug(c.req.param('owner')!, c.req.param('name')!);
@@ -121,7 +122,7 @@ app.get("/api/repositories/:owner/:name/branches", async (c) => {
   return c.json({ branches });
 });
 
-app.post("/api/repositories/:owner/:name/branches", requireAuth, async (c) => {
+app.post("/api/repositories/:owner/:name/branches", requireAuth, gitWriteLock, async (c) => {
   const owner = c.req.param("owner");
   const name = c.req.param("name");
   const currentUser = c.get("user")!;
@@ -163,7 +164,7 @@ app.post("/api/repositories/:owner/:name/branches", requireAuth, async (c) => {
   return c.json({ branch: body.branch, oid: created.oid });
 });
 
-app.delete("/api/repositories/:owner/:name/branches/:branch", requireAuth, async (c) => {
+app.delete("/api/repositories/:owner/:name/branches/:branch", requireAuth, gitWriteLock, async (c) => {
   const owner = c.req.param("owner");
   const name = c.req.param("name");
   const branch = c.req.param("branch");
@@ -200,7 +201,7 @@ app.delete("/api/repositories/:owner/:name/branches/:branch", requireAuth, async
   return c.json({ success: true });
 });
 
-app.patch("/api/repositories/:owner/:name/default-branch", requireAuth, async (c) => {
+app.patch("/api/repositories/:owner/:name/default-branch", requireAuth, gitWriteLock, async (c) => {
   const owner = c.req.param("owner");
   const name = c.req.param("name");
   const currentUser = c.get("user")!;
@@ -236,7 +237,7 @@ app.patch("/api/repositories/:owner/:name/default-branch", requireAuth, async (c
 
 // ─── Web-based file editing ──────────────────────────────────────────────────
 
-app.post("/api/repositories/:owner/:name/file", requireAuth, async (c) => {
+app.post("/api/repositories/:owner/:name/file", requireAuth, gitWriteLock, async (c) => {
   const owner = c.req.param("owner");
   const name = c.req.param("name");
   const currentUser = c.get("user")!;
@@ -306,7 +307,7 @@ app.get("/api/repositories/:owner/:name/tags", async (c) => {
   return c.json({ tags });
 });
 
-app.post("/api/repositories/:owner/:name/tags", requireAuth, async (c) => {
+app.post("/api/repositories/:owner/:name/tags", requireAuth, gitWriteLock, async (c) => {
   const owner = c.req.param("owner");
   const name = c.req.param("name");
   const currentUser = c.get("user")!;
@@ -357,7 +358,7 @@ app.post("/api/repositories/:owner/:name/tags", requireAuth, async (c) => {
   return c.json({ tag: body.name, oid: created.oid });
 });
 
-app.delete("/api/repositories/:owner/:name/tags/:tag", requireAuth, async (c) => {
+app.delete("/api/repositories/:owner/:name/tags/:tag", requireAuth, gitWriteLock, async (c) => {
   const owner = c.req.param("owner");
   const name = c.req.param("name");
   const tag = c.req.param("tag");

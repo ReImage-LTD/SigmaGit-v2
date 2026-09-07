@@ -1044,7 +1044,6 @@ app.post("/:owner/:name/git-receive-pack", async (c) => {
       for (const update of updates) {
         if (update.newOid !== "0".repeat(40) && update.ref.startsWith("refs/heads/")) {
           const branch = update.ref.replace("refs/heads/", "");
-          syncWorkflows(repo.id).catch(() => {});
           triggerWorkflows({
             repoId: repo.id,
             branch,

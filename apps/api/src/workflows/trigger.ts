@@ -4,8 +4,10 @@
  * Queries active workflows matching the event, creates workflow_runs and
  * workflow_jobs rows in "queued" state. Runners pick them up via heartbeat.
  */
-import { db, workflows, workflowRuns, workflowJobs } from '@sigmagit/db';
+import { db, workflows, workflowRuns, workflowJobs, repositories } from '@sigmagit/db';
 import { eq, and } from 'drizzle-orm';
+import { readWorkflowSnapshot } from './snapshot';
+import { withRepositoryLock } from '../lib/repository-lock';
 
 type TriggerEvent = 'push' | 'pull_request' | 'workflow_dispatch';
 
@@ -30,6 +32,10 @@ function branchMatches(branch: string, patterns: string[] | undefined): boolean 
 }
 
 export async function triggerWorkflows(options: TriggerOptions): Promise<string[]> {
+  return withRepositoryLock(options.repoId, () => triggerSnapshot(options));
+}
+
+async function triggerSnapshot(options: TriggerOptions): Promise<string[]> {
   const {
     repoId,
     branch,
@@ -43,20 +49,20 @@ export async function triggerWorkflows(options: TriggerOptions): Promise<string[
   const runIds: string[] = [];
 
   try {
-    // Query active workflows for this repo
-    const query = workflowId
-      ? [
-          await db.query.workflows.findFirst({
-            where: and(
-              eq(workflows.id, workflowId),
-              eq(workflows.repositoryId, repoId),
-              eq(workflows.active, true),
-            ),
-          }),
-        ]
-      : await db.query.workflows.findMany({
-          where: and(eq(workflows.repositoryId, repoId), eq(workflows.active, true)),
-        });
+    const repo = await db.query.repositories.findFirst({ where: eq(repositories.id, repoId) });
+    if (!repo) throw new Error('Repository not found');
+    const snapshot = await readWorkflowSnapshot(repo.storageOwnerId, repo.name, commitSha || branch);
+    const catalog = await db.query.workflows.findMany({ where: eq(workflows.repositoryId, repoId) });
+    const selected = workflowId ? catalog.find(row => row.id === workflowId) : undefined;
+    if (workflowId && !selected) throw new Error('Workflow not found');
+    const query = [];
+    for (const definition of snapshot.definitions) {
+      if (selected && definition.path !== selected.path) continue;
+      let row = catalog.find(item => item.path === definition.path);
+      if (row && !row.active) continue;
+      if (!row) [row] = await db.insert(workflows).values({ repositoryId: repoId, ...definition, active: true }).returning();
+      query.push({ ...row, ...definition });
+    }
 
     for (const workflow of query) {
       if (!workflow) continue;
@@ -96,7 +102,7 @@ export async function triggerWorkflows(options: TriggerOptions): Promise<string[
             workflowId: workflow.id,
             repositoryId: repoId,
             triggeredBy: triggeredBy ?? null,
-            commitSha,
+            commitSha: snapshot.oid,
             branch,
             eventName,
             eventPayload,
@@ -123,6 +129,7 @@ export async function triggerWorkflows(options: TriggerOptions): Promise<string[
     }
   } catch (err) {
     console.error('[Workflows] triggerWorkflows error:', err);
+    throw err;
   }
 
   return runIds;

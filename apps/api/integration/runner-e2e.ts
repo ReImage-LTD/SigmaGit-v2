@@ -103,7 +103,7 @@ try {
   await git.init({ fs: store.fs, dir: store.dir, defaultBranch: 'main' });
   await store.fs.promises.writeFile('/README.md', 'private checkout marker\n');
   await git.add({ fs: store.fs, dir: store.dir, filepath: 'README.md' });
-  const commitSha = await git.commit({
+  let commitSha = await git.commit({
     fs: store.fs,
     dir: store.dir,
     message: 'integration fixture',
@@ -131,6 +131,11 @@ jobs:
           test "\${{ needs.first.outputs.value }}" = "roundtrip"
           echo "SECOND_JOB_MARKER"
 `;
+  await store.fs.promises.mkdir('/.github');
+  await store.fs.promises.mkdir('/.github/workflows');
+  await store.fs.promises.writeFile('/.github/workflows/test.yml', workflowContent);
+  await git.add({ fs: store.fs, dir: store.dir, filepath: '.github/workflows/test.yml' });
+  commitSha = await git.commit({ fs: store.fs, dir: store.dir, message: 'workflow snapshot', author: { name: 'Test', email: 'test@example.invalid' } });
   const [workflow] = await db
     .insert(workflows)
     .values({
