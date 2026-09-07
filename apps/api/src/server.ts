@@ -1,4 +1,5 @@
 import { stopDeliveryWorker } from './workers/deliveries';
+import { closeRepositoryLocks } from './lib/repository-lock';
 import { stopRunnerHealthWorker } from './workers/runner-health';
 import { stopMigrationWorker } from './workers/migration';
 import options from './index';
@@ -17,6 +18,7 @@ async function shutdown() {
   }, 25_000);
   try {
     await Promise.all([server.stop(false), stopRunnerHealthWorker(), stopMigrationWorker(), stopDeliveryWorker()]);
+    await closeRepositoryLocks();
     clearTimeout(deadline);
     process.exit(0);
   } catch {

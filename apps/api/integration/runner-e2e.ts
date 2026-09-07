@@ -172,6 +172,8 @@ jobs:
   await checkProjectAuthorization(baseURL);
   const { checkMigrationClaims } = await import('./migration-claims');
   await checkMigrationClaims(ownerId);
+  const { checkRepositoryLocks } = await import('./repository-locks');
+  await checkRepositoryLocks();
   const { checkBackgroundTasks } = await import('./background-tasks');
   await checkBackgroundTasks(repo.id, ownerId);
   const { checkRepositoryRecovery } = await import('./repository-recovery');
@@ -380,7 +382,12 @@ jobs:
   assert.equal((await heartbeatRequest()).status, 401);
   console.log('PASS: deleting an active runner finalizes its run and revokes its credentials');
 } finally {
-  server?.stop(true);
+  await server?.stop(true);
+  const { stopDeliveryWorker } = await import('../src/workers/deliveries');
+  const { stopRunnerHealthWorker } = await import('../src/workers/runner-health');
+  await Promise.all([stopDeliveryWorker(), stopRunnerHealthWorker()]);
+  const { closeRepositoryLocks } = await import('../src/lib/repository-lock');
+  await closeRepositoryLocks();
   assert(/^runner_e2e_[a-f0-9]{32}$/.test(databaseName));
   await admin.unsafe(`DROP DATABASE "${databaseName}" WITH (FORCE)`);
   await admin.end();
