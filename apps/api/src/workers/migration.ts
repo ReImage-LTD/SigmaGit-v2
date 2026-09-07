@@ -8,9 +8,10 @@ import {
 } from '@sigmagit/db';
 import { resolveAndValidateOutbound } from '../security/ssrf';
 import { decryptCredential } from '../lib/credential-cipher';
+import { copyImportedGit } from '../lib/import-storage';
 import { claimMigration } from '../lib/migration-claims';
 import { mkdir, rm, writeFile, stat } from 'fs/promises';
-import { getRepoPrefix, putObject } from '../s3';
+import { getRepoPrefix, putObject, deletePrefix } from '../s3';
 import { eq, and } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { config } from '../config';
@@ -74,6 +75,8 @@ export async function processMigration(id?: string) {
   const migration = await claimMigration(id);
   if (!migration) return;
   const migrationId = migration.id;
+  let stagedPrefix: string | undefined;
+  let published = false;
 
   try {
     // Get credentials if they exist
@@ -148,7 +151,7 @@ export async function processMigration(id?: string) {
       env.GIT_CONFIG_VALUE_1 = 'true';
     }
     const cloneProcess = spawn({
-      cmd: ['git', 'clone', '--bare', '--single-branch', cloneUrl, tempRepoPath],
+      cmd: ['git', 'clone', '--bare', cloneUrl, tempRepoPath],
       cwd: TEMP_DIR,
       env,
       stdout: 'ignore',
@@ -222,51 +225,17 @@ export async function processMigration(id?: string) {
     });
     if (existing) throw new Error('Repository with this name already exists');
 
-    const [repo] = await db
-      .insert(repositories)
-      .values({
-        name: normalizedName,
-        description: options.description || null,
-        visibility: options.visibility || 'private',
-        ownerId: user.id,
-        organizationId,
-      })
-      .returning();
-
-    const targetPrefix = getRepoPrefix(repo.storageOwnerId, normalizedName);
-    const headContent = await Bun.file(join(tempRepoPath, 'HEAD'))
-      .text()
-      .catch(() => 'ref: refs/heads/main\n');
-    await putObject(`${targetPrefix}/HEAD`, headContent);
-    const configContent = await Bun.file(join(tempRepoPath, 'config'))
-      .text()
-      .catch(() => '[core]\n\tbare = true\n');
-    await putObject(`${targetPrefix}/config`, configContent);
-
-    const objectsPath = join(tempRepoPath, 'objects');
-    try {
-      const { readdir, readFile } = await import('fs/promises');
-      async function copyDir(dirPath: string, prefix: string) {
-        const entries = await readdir(dirPath, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = join(dirPath, entry.name);
-          const relativePath = `${prefix}/${entry.name}`;
-          if (entry.isDirectory()) {
-            await copyDir(fullPath, relativePath);
-          } else {
-            await putObject(`${targetPrefix}/${relativePath}`, await readFile(fullPath));
-          }
-        }
-      }
-      await copyDir(objectsPath, 'objects');
-      try {
-        await copyDir(join(tempRepoPath, 'refs'), 'refs');
-      } catch {
-        /* ignore */
-      }
-    } catch (error) {
-      console.error('[Migration] Error copying objects:', error);
-    }
+    const verify = spawn({ cmd: ['git', '-C', tempRepoPath, 'fsck', '--full'], stdout: 'ignore', stderr: 'ignore' });
+    if (await verify.exited !== 0) throw new Error('Imported repository failed integrity validation');
+    const storageOwnerId = randomUUID();
+    stagedPrefix = getRepoPrefix(storageOwnerId, normalizedName);
+    await copyImportedGit(tempRepoPath, (key, body) => putObject(stagedPrefix + '/' + key, body));
+    const [repo] = await db.insert(repositories).values({
+      name: normalizedName, description: options.description || null,
+      visibility: options.visibility || 'private', ownerId: user.id,
+      organizationId, storageOwnerId,
+    }).returning();
+    published = true;
 
     await db
       .update(repositoryMigrations)
@@ -280,6 +249,7 @@ export async function processMigration(id?: string) {
     console.log(`[Migration] Migration ${migrationId} completed`);
     await rm(tempRepoPath, { recursive: true, force: true });
   } catch (error) {
+    if (stagedPrefix && !published) await deletePrefix(stagedPrefix).catch(cleanupError => console.error("[Migration] Staging cleanup failed", cleanupError));
     console.error(`[Migration] Migration ${migrationId} failed:`, error);
     await db
       .update(repositoryMigrations)
