@@ -18,9 +18,12 @@ import { randomUUID } from 'crypto';
 import { config } from '../config';
 import { isIP } from 'node:net';
 import { join } from 'path';
-import { spawn } from 'bun';
+import { tmpdir } from 'node:os';
+import { runImportCommand, checkImportDisk } from '../lib/import-process';
 
-const TEMP_DIR = '/tmp/sigmagit-migrations';
+const TEMP_DIR = join(tmpdir(), 'sigmagit-migrations');
+const IMPORT_MAX_BYTES = 1024 * 1024 * 1024;
+const IMPORT_TIMEOUT_MS = 10 * 60_000;
 
 // Build authenticated URL for git clone
 function buildAuthenticatedUrl(
@@ -79,11 +82,13 @@ export async function processMigration(id?: string) {
   if (!migration?.startedAt) return;
   const controller = new AbortController();
   activeControllers.add(controller);
+  const deadline = setTimeout(() => controller.abort(new Error('Import exceeded ten minute deadline')), IMPORT_TIMEOUT_MS);
   let renewing = false;
   const timer = setInterval(async () => {
     if (renewing) return;
     renewing = true;
     try {
+      await checkImportDisk(join(TEMP_DIR, migration.id + '-' + migration.startedAt!.getTime()), IMPORT_MAX_BYTES);
       const rows = await db.update(repositoryMigrations).set({ updatedAt: new Date() })
         .where(migrationOwnership(migration.id, migration.startedAt!)).returning({ id: repositoryMigrations.id });
       if (!rows.length) controller.abort(new Error('Import cancelled or ownership lost'));
@@ -91,7 +96,7 @@ export async function processMigration(id?: string) {
     finally { renewing = false; }
   }, 2000);
   try { await requestContext.run(controller.signal, () => processClaimedMigration(migration, controller.signal)); }
-  finally { clearInterval(timer); activeControllers.delete(controller); }
+  finally { clearTimeout(deadline); clearInterval(timer); activeControllers.delete(controller); }
 }
 
 async function processClaimedMigration(migration: typeof repositoryMigrations.$inferSelect, signal: AbortSignal) {
@@ -100,6 +105,7 @@ async function processClaimedMigration(migration: typeof repositoryMigrations.$i
   const tempRepoPath = join(TEMP_DIR, migrationId + '-' + migration.startedAt!.getTime());
   let stagedPrefix: string | undefined;
   let published = false;
+  let keyPath: string | undefined;
 
   try {
     // Get credentials if they exist
@@ -132,7 +138,6 @@ async function processClaimedMigration(migration: typeof repositoryMigrations.$i
     // Prepare clone URL with authentication
     let cloneUrl = migration.sourceUrl;
     let sshCommand: string | undefined;
-    let keyPath: string | undefined;
     const originalUrl = sourceResolved.url;
     const pinnedAddress = sourceResolved.addresses[0]!;
     const clonePort = originalUrl.port || (originalUrl.protocol === 'https:' ? '443' : '80');
@@ -172,37 +177,8 @@ async function processClaimedMigration(migration: typeof repositoryMigrations.$i
       env.GIT_CONFIG_KEY_1 = 'http.sslVerify';
       env.GIT_CONFIG_VALUE_1 = 'true';
     }
-    const cloneProcess = spawn({
-      cmd: ['git', 'clone', '--bare', cloneUrl, tempRepoPath],
-      cwd: TEMP_DIR,
-      env,
-      stdout: 'ignore',
-      stderr: 'pipe',
-    });
-    const kill = () => cloneProcess.kill('SIGKILL');
-    signal.addEventListener('abort', kill, { once: true });
-    if (signal.aborted) kill();
-    const [exitCode, stderr] = await Promise.all([
-      cloneProcess.exited,
-      new Response(cloneProcess.stderr).text(),
-    ]).finally(() => signal.removeEventListener('abort', kill));
-    signal.throwIfAborted();
-    if (keyPath) await cleanupSshKey(keyPath);
-
-    if (exitCode !== 0) {
-      const errorMsg = stderr;
-      if (
-        errorMsg.includes('Authentication failed') ||
-        errorMsg.includes('403') ||
-        errorMsg.includes('401')
-      ) {
-        throw new Error('Authentication failed. Please check your credentials.');
-      }
-      if (errorMsg.includes('Repository not found') || errorMsg.includes('404')) {
-        throw new Error('Repository not found. Please check the URL/owner/name.');
-      }
-      throw new Error(`Git clone failed: ${errorMsg}`);
-    }
+    await runImportCommand(['git', '-c', 'http.followRedirects=false', 'clone', '--bare', cloneUrl, tempRepoPath], TEMP_DIR, signal, env);
+    await checkImportDisk(tempRepoPath, IMPORT_MAX_BYTES);
 
     await db
       .update(repositoryMigrations)
@@ -251,8 +227,7 @@ async function processClaimedMigration(migration: typeof repositoryMigrations.$i
     });
     if (existing) throw new Error('Repository with this name already exists');
 
-    const verify = spawn({ cmd: ['git', '-C', tempRepoPath, 'fsck', '--full'], stdout: 'ignore', stderr: 'ignore' });
-    if (await verify.exited !== 0) throw new Error('Imported repository failed integrity validation');
+    await runImportCommand(['git', '-C', tempRepoPath, 'fsck', '--full'], TEMP_DIR, signal);
     const storageOwnerId = randomUUID();
     stagedPrefix = getRepoPrefix(storageOwnerId, normalizedName);
     await copyImportedGit(tempRepoPath, async (key, body) => { signal.throwIfAborted(); await putObject(stagedPrefix + '/' + key, body); });
@@ -288,6 +263,8 @@ async function processClaimedMigration(migration: typeof repositoryMigrations.$i
     } catch {
       /* ignore */
     }
+  } finally {
+    if (keyPath) await cleanupSshKey(keyPath);
   }
 }
 

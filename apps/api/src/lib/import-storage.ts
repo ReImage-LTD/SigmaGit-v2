@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /** Copy only Git data, never the clone's credential-bearing remote configuration. */
@@ -7,7 +7,10 @@ export async function copyImportedGit(root: string, put: (key: string, body: Uin
     for (const entry of await readdir(path, { withFileTypes: true })) {
       const key = `${prefix}/${entry.name}`;
       if (entry.isDirectory()) await copyDirectory(join(path, entry.name), key);
-      else if (entry.isFile()) await put(key, await readFile(join(path, entry.name)));
+      else if (entry.isFile()) {
+        if ((await stat(join(path, entry.name))).size > 128 * 1024 * 1024) throw new Error('Import file exceeds 128 MiB buffer limit');
+        await put(key, await readFile(join(path, entry.name)));
+      }
       else throw new Error('Unsupported Git storage entry');
     }
   }
