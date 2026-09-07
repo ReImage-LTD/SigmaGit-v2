@@ -153,13 +153,13 @@ app.post("/api/repositories/:owner/:name/branches", requireAuth, gitWriteLock, a
   await repoCache.invalidateRepo(store.ownerId, store.repoName);
 
   // Fire webhook
-  deliverWebhookEvent(repo.id, "branch", {
+  await deliverWebhookEvent(repo.id, "branch", {
     action: "created",
     ref: body.branch,
     oid: created.oid,
     repository: { owner, name: repo.name },
     sender: { id: currentUser.id, username: currentUser.username },
-  }).catch(() => {});
+  });
 
   return c.json({ branch: body.branch, oid: created.oid });
 });
@@ -191,12 +191,12 @@ app.delete("/api/repositories/:owner/:name/branches/:branch", requireAuth, gitWr
   );
 
   // Fire webhook
-  deliverWebhookEvent(repo.id, "branch", {
+  await deliverWebhookEvent(repo.id, "branch", {
     action: "deleted",
     ref: branch,
     repository: { owner, name: repo.name },
     sender: { id: currentUser.id, username: currentUser.username },
-  }).catch(() => {});
+  });
 
   return c.json({ success: true });
 });
@@ -347,13 +347,13 @@ app.post("/api/repositories/:owner/:name/tags", requireAuth, gitWriteLock, async
   await repoCache.invalidateRepo(store.ownerId, store.repoName);
 
   // Fire webhook
-  deliverWebhookEvent(repo.id, "tag", {
+  await deliverWebhookEvent(repo.id, "tag", {
     action: "created",
     tag: body.name,
     oid: created.oid,
     repository: { owner, name: repo.name },
     sender: { id: currentUser.id, username: currentUser.username },
-  }).catch(() => {});
+  });
 
   return c.json({ tag: body.name, oid: created.oid });
 });
@@ -377,12 +377,12 @@ app.delete("/api/repositories/:owner/:name/tags/:tag", requireAuth, gitWriteLock
   await repoCache.invalidateRepo(store.ownerId, store.repoName);
 
   // Fire webhook
-  deliverWebhookEvent(repo.id, "tag", {
+  await deliverWebhookEvent(repo.id, "tag", {
     action: "deleted",
     tag,
     repository: { owner, name: repo.name },
     sender: { id: currentUser.id, username: currentUser.username },
-  }).catch(() => {});
+  });
 
   return c.json({ success: true });
 });

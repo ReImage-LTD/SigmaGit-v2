@@ -172,6 +172,8 @@ jobs:
   await checkProjectAuthorization(baseURL);
   const { checkMigrationClaims } = await import('./migration-claims');
   await checkMigrationClaims(ownerId);
+  const { checkBackgroundTasks } = await import('./background-tasks');
+  await checkBackgroundTasks(repo.id, ownerId);
   await checkReleaseAuthorization({
     baseURL,
     ownerId,

@@ -1,3 +1,4 @@
+import { stopDeliveryWorker } from './workers/deliveries';
 import { stopRunnerHealthWorker } from './workers/runner-health';
 import { stopMigrationWorker } from './workers/migration';
 import options from './index';
@@ -15,7 +16,7 @@ async function shutdown() {
     process.exit(1);
   }, 25_000);
   try {
-    await Promise.all([server.stop(false), stopRunnerHealthWorker(), stopMigrationWorker()]);
+    await Promise.all([server.stop(false), stopRunnerHealthWorker(), stopMigrationWorker(), stopDeliveryWorker()]);
     clearTimeout(deadline);
     process.exit(0);
   } catch {

@@ -1976,3 +1976,16 @@ export const workflowStepsRelations = relations(workflowSteps, ({ one }) => ({
     references: [workflowJobs.id],
   }),
 }));
+export const backgroundTasks = pgTable('background_tasks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  kind: text('kind', { enum: ['webhook', 'storage-delete'] }).notNull(),
+  payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+  state: text('state', { enum: ['pending', 'processing', 'completed', 'failed'] }).notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  availableAt: timestamp('available_at').notNull().defaultNow(),
+  leaseUntil: timestamp('lease_until'),
+  claimToken: uuid('claim_token'),
+  lastError: text('last_error'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, table => [index('background_tasks_pending_idx').on(table.state, table.availableAt)]);

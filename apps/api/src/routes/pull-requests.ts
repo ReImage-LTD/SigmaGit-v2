@@ -1012,7 +1012,7 @@ app.post("/api/pulls/:id/merge", requireAuth, async (c) => {
   await repoCache.invalidateBranch(getStorageOwnerId(baseRepo), baseRepo.name, pr.baseBranch);
 
   // Fire webhook
-  deliverWebhookEvent(pr.repositoryId, "pull_request", {
+  await deliverWebhookEvent(pr.repositoryId, "pull_request", {
     action: "merged",
     number: pr.number,
     title: pr.title,
@@ -1021,7 +1021,7 @@ app.post("/api/pulls/:id/merge", requireAuth, async (c) => {
     baseBranch: pr.baseBranch,
     headBranch: pr.headBranch,
     sender: { id: user.id, username: user.username },
-  }).catch(() => {});
+  });
 
   return c.json({ success: true, mergeCommitOid: mergeResult.mergeCommitOid });
 });

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db, repositoryWebhooks } from "@sigmagit/db";
+import { db, repositoryWebhooks, backgroundTasks } from "@sigmagit/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, type AuthVariables } from "../middleware/auth";
 import { createHmac } from "crypto";
@@ -27,50 +27,10 @@ export async function deliverWebhookEvent(
   payload: Record<string, unknown>
 ): Promise<void> {
   if (!config.webhooksEnabled) return;
-  try {
-    const hooks = await db.query.repositoryWebhooks.findMany({
-      where: and(eq(repositoryWebhooks.repositoryId, repositoryId), eq(repositoryWebhooks.active, true)),
-    });
+  const hooks = await db.query.repositoryWebhooks.findMany({ where: and(eq(repositoryWebhooks.repositoryId, repositoryId), eq(repositoryWebhooks.active, true)) });
+  const tasks = hooks.filter(hook => (hook.events as WebhookEvent[]).includes(event)).map(hook => ({ kind: 'webhook' as const, payload: { webhookId: hook.id, event, body: payload } }));
+  if (tasks.length) await db.insert(backgroundTasks).values(tasks);
 
-    await Promise.allSettled(
-      hooks
-        .filter((h) => (h.events as WebhookEvent[]).includes(event))
-        .map(async (hook) => {
-          const body =
-            hook.contentType === "form"
-              ? new URLSearchParams({ payload: JSON.stringify(payload) }).toString()
-              : JSON.stringify(payload);
-
-          const headers: Record<string, string> = {
-            "Content-Type": hook.contentType === "form" ? "application/x-www-form-urlencoded" : "application/json",
-            "X-SigmaGit-Event": event,
-            "X-SigmaGit-Delivery": crypto.randomUUID(),
-          };
-
-          if (hook.secret) {
-            const sig = createHmac("sha256", hook.secret).update(body).digest("hex");
-            headers["X-Hub-Signature-256"] = `sha256=${sig}`;
-          }
-
-          // Defense-in-depth: re-validate destination at delivery time (SSRF).
-          const dest = validateOutboundUrl(hook.url, { requireHttps: config.isProduction });
-          if (!dest.ok) {
-            console.warn(`[Webhook] Skipping delivery to blocked URL: ${dest.error}`);
-            return;
-          }
-
-          await guardedFetch(hook.url, {
-            method: "POST",
-            headers,
-            body,
-            signal: AbortSignal.timeout(15_000),
-            requireHttps: config.isProduction,
-          });
-        })
-    );
-  } catch (error) {
-    console.error("[Webhook] deliverWebhookEvent error:", error);
-  }
 }
 
 // ─── GET /api/repositories/:owner/:name/webhooks ─────────────────────────────

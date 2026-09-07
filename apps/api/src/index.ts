@@ -1,3 +1,4 @@
+import { startDeliveryWorker } from './workers/deliveries';
 import { requireRunnerAuth } from './middleware/runner-auth';
 import { Hono } from "hono";
 import { HTTPException } from 'hono/http-exception';
@@ -157,6 +158,7 @@ if (config.enableMigrations) {
 }
 
 startRunnerHealthWorker();
+startDeliveryWorker();
 
 const port = config.port;
 
