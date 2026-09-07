@@ -1,3 +1,6 @@
+import { stageRepositoryStorage, queueRepositoryDeletion } from '../lib/repository-storage';
+import { withRepositoryLock } from '../lib/repository-lock';
+import { createMiddleware } from 'hono/factory';
 import { Hono } from "hono";
 import { db, users, repositories, stars, repoBranchMetadata, organizations, organizationMembers } from "@sigmagit/db";
 import { eq, sql, desc, and, inArray } from "drizzle-orm";
@@ -12,6 +15,7 @@ import { repoCache } from "../redis";
 import { createGitStore } from "../git";
 
 const app = new Hono<{ Variables: AuthVariables }>();
+const repositoryMutationLock = createMiddleware<{ Variables: AuthVariables }>(async (c, next) => { await withRepositoryLock(c.req.param('id')!, next); });
 
 const REPOSITORY_VISIBILITIES = ["public", "private"] as const;
 type RepositoryVisibility = (typeof REPOSITORY_VISIBILITIES)[number];
@@ -323,18 +327,7 @@ app.post("/api/repositories", requireAuth, writeRateLimit, async (c) => {
     return c.json({ error: "Repository already exists" }, 400);
   }
 
-  const [repo] = await db
-    .insert(repositories)
-    .values({
-      name: normalizedName,
-      description: body.description,
-      visibility: body.visibility,
-      ownerId: user.id, // Always set to user ID for ownership tracking
-      organizationId: body.organizationId || null,
-    })
-    .returning();
-
-  const storageOwnerId = getStorageOwnerId(repo);
+  const repo = await stageRepositoryStorage(normalizedName, async storageOwnerId => {
   const repoPrefix = getRepoPrefix(storageOwnerId, normalizedName);
   await putObject(`${repoPrefix}/HEAD`, "ref: refs/heads/main\n");
   await putObject(`${repoPrefix}/config`, "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = true\n");
@@ -371,6 +364,11 @@ app.post("/api/repositories", requireAuth, writeRateLimit, async (c) => {
     });
     await store.fs.promises.writeFile("refs/heads/main", `${initialCommitOid}\n`);
   }
+
+  }, async (tx, storageOwnerId) => {
+    const [created] = await tx.insert(repositories).values({ name: normalizedName, description: body.description, visibility: body.visibility, ownerId: user.id, organizationId: body.organizationId || null, storageOwnerId }).returning();
+    return created;
+  });
 
   return c.json(repo);
 });
@@ -468,44 +466,19 @@ app.post("/api/repositories/:owner/:name/fork", requireAuth, writeRateLimit, asy
     return c.json({ error: "Repository with this name already exists" }, 400);
   }
 
-  const [forkRepo] = await db
-    .insert(repositories)
-    .values({
-      name: targetName,
-      description: ("description" in body ? body.description : source.description) ?? null,
-      visibility: source.visibility,
-      ownerId: user.id,
-      forkedFromId: source.id,
-    })
-    .returning();
-
-  const sourcePrefix = getRepoPrefix(getStorageOwnerId(source), source.name);
-  const targetPrefix = getRepoPrefix(getStorageOwnerId(forkRepo), targetName);
-  await copyPrefix(sourcePrefix, targetPrefix);
-
-  const sourceMetadata = await db.query.repoBranchMetadata.findMany({
-    where: eq(repoBranchMetadata.repoId, source.id),
-  });
-
-  if (sourceMetadata.length > 0) {
-    await db.insert(repoBranchMetadata).values(
-      sourceMetadata.map((row) => ({
-        repoId: forkRepo.id,
-        branch: row.branch,
-        headOid: row.headOid,
-        commitCount: row.commitCount,
-        lastCommitOid: row.lastCommitOid,
-        lastCommitMessage: row.lastCommitMessage,
-        lastCommitAuthorName: row.lastCommitAuthorName,
-        lastCommitAuthorEmail: row.lastCommitAuthorEmail,
-        lastCommitTimestamp: row.lastCommitTimestamp,
-        readmeOid: row.readmeOid,
-        rootTree: row.rootTree,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }))
-    );
-  }
+  const forkRepo = await withRepositoryLock(source.id, () => stageRepositoryStorage(targetName,
+    async storageOwnerId => {
+      const current = await db.query.repositories.findFirst({ where: eq(repositories.id, source.id) });
+      if (!current || (current.visibility === 'private' && current.ownerId !== user.id)) throw new Error('Source repository is no longer accessible');
+      Object.assign(source, current);
+      await copyPrefix(getRepoPrefix(getStorageOwnerId(source), source.name), getRepoPrefix(storageOwnerId, targetName));
+    },
+    async (tx, storageOwnerId) => {
+      const [created] = await tx.insert(repositories).values({ name: targetName, description: ('description' in body ? body.description : source.description) ?? null, visibility: source.visibility, ownerId: user.id, forkedFromId: source.id, defaultBranch: source.defaultBranch, storageOwnerId }).returning();
+      const metadata = await tx.select().from(repoBranchMetadata).where(eq(repoBranchMetadata.repoId, source.id));
+      if (metadata.length) await tx.insert(repoBranchMetadata).values(metadata.map(({ repoId, ...row }) => ({ ...row, repoId: created.id })));
+      return created;
+    }));
 
   const forkedFrom = await getForkedFromInfo(source.id, user.id);
 
@@ -933,7 +906,7 @@ app.get("/api/repositories/:owner/:name/forks", async (c) => {
   return c.json({ forks });
 });
 
-app.delete("/api/repositories/:id", requireAuth, async (c) => {
+app.delete("/api/repositories/:id", requireAuth, repositoryMutationLock, async (c) => {
   const user = c.get("user")!;
   const id = c.req.param("id");
 
@@ -952,7 +925,10 @@ app.delete("/api/repositories/:id", requireAuth, async (c) => {
   console.log(`[API] Deleting repository ${user.id}/${repo.name}`);
   const repoPrefix = getRepoPrefix(getStorageOwnerId(repo), repo.name);
 
-  await deletePrefix(repoPrefix);
+  await db.transaction(async tx => {
+    await queueRepositoryDeletion(tx, getStorageOwnerId(repo), repo.name);
+    await tx.delete(repositories).where(eq(repositories.id, id));
+  });
   console.log(`[API] Deleted all objects for repository`);
 
   await repoCache.invalidateRepo(getStorageOwnerId(repo), repo.name);
@@ -974,13 +950,12 @@ app.delete("/api/repositories/:id", requireAuth, async (c) => {
   }
   console.log(`[API] Invalidated Redis cache for repository`);
 
-  await db.delete(repositories).where(eq(repositories.id, id));
   console.log(`[API] Deleted repository record`);
 
   return c.json({ success: true });
 });
 
-app.patch("/api/repositories/:id", requireAuth, async (c) => {
+app.patch("/api/repositories/:id", requireAuth, repositoryMutationLock, async (c) => {
   const user = c.get("user")!;
   const id = c.req.param("id");
   const body = await c.req.json<{
@@ -1024,16 +999,14 @@ app.patch("/api/repositories/:id", requireAuth, async (c) => {
     }
   }
 
-  const [updated] = await db
-    .update(repositories)
-    .set({
-      name: newName,
-      description: body.description ?? repo.description,
-      visibility: nextVisibility,
-      updatedAt: new Date(),
-    })
-    .where(eq(repositories.id, id))
-    .returning();
+  const save = async (tx: Parameters<Parameters<typeof db.transaction>[0]>[0], storageOwnerId: string) => {
+    const [updated] = await tx.update(repositories).set({ name: newName, description: body.description ?? repo.description, visibility: nextVisibility, storageOwnerId, updatedAt: new Date() }).where(eq(repositories.id, id)).returning();
+    if (newName !== repo.name) await queueRepositoryDeletion(tx, getStorageOwnerId(repo), repo.name);
+    return updated;
+  };
+  const updated = newName !== repo.name
+    ? await stageRepositoryStorage(newName, async storageOwnerId => { await copyPrefix(getRepoPrefix(getStorageOwnerId(repo), repo.name), getRepoPrefix(storageOwnerId, newName)); }, save)
+    : await db.transaction(tx => save(tx, getStorageOwnerId(repo)));
 
   if (newName !== repo.name || nextVisibility !== repo.visibility) {
     await repoCache.invalidateRepo(getStorageOwnerId(repo), repo.name);

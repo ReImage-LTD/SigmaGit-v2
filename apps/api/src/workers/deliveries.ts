@@ -1,11 +1,21 @@
-import { db, repositoryWebhooks, backgroundTasks } from '@sigmagit/db';
-import { eq } from 'drizzle-orm';
+import { db, repositoryWebhooks, backgroundTasks, repositories } from '@sigmagit/db';
+import { eq, and } from 'drizzle-orm';
+import { deletePrefix, getRepoPrefix } from '../s3';
+import { requestContext } from '../lib/request-context';
 import { createHmac } from 'node:crypto';
 import { claimBackgroundTask, finishBackgroundTask } from '../lib/background-tasks';
 import { guardedFetch } from '../security/ssrf';
 import { config } from '../config';
 
 export async function deliverTask(task: typeof backgroundTasks.$inferSelect, send = guardedFetch) {
+  if (task.kind === 'storage-delete') {
+    const { storageOwnerId, name } = task.payload;
+    if (typeof storageOwnerId !== 'string' || typeof name !== 'string') throw new Error('Invalid cleanup task');
+    const live = await db.query.repositories.findFirst({ where: and(eq(repositories.storageOwnerId, storageOwnerId), eq(repositories.name, name)), columns: { id: true } });
+    if (live) return;
+    await requestContext.run(AbortSignal.timeout(20_000), () => deletePrefix(getRepoPrefix(storageOwnerId, name)));
+    return;
+  }
   const hook = await db.query.repositoryWebhooks.findFirst({ where: eq(repositoryWebhooks.id, String(task.payload.webhookId)) });
   if (!hook?.active) return;
   const json = JSON.stringify(task.payload.body);

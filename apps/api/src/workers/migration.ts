@@ -1,3 +1,4 @@
+import { stageRepositoryStorage } from '../lib/repository-storage';
 import {
   db,
   repositoryMigrations,
@@ -103,8 +104,6 @@ async function processClaimedMigration(migration: typeof repositoryMigrations.$i
   const migrationId = migration.id;
   const ownership = migrationOwnership(migrationId, migration.startedAt!);
   const tempRepoPath = join(TEMP_DIR, migrationId + '-' + migration.startedAt!.getTime());
-  let stagedPrefix: string | undefined;
-  let published = false;
   let keyPath: string | undefined;
 
   try {
@@ -228,10 +227,10 @@ async function processClaimedMigration(migration: typeof repositoryMigrations.$i
     if (existing) throw new Error('Repository with this name already exists');
 
     await runImportCommand(['git', '-C', tempRepoPath, 'fsck', '--full'], TEMP_DIR, signal);
-    const storageOwnerId = randomUUID();
-    stagedPrefix = getRepoPrefix(storageOwnerId, normalizedName);
-    await copyImportedGit(tempRepoPath, async (key, body) => { signal.throwIfAborted(); await putObject(stagedPrefix + '/' + key, body); });
-    await db.transaction(async (tx) => {
+    await stageRepositoryStorage(normalizedName, async storageOwnerId => {
+      const prefix = getRepoPrefix(storageOwnerId, normalizedName);
+      await copyImportedGit(tempRepoPath, async (key, body) => { signal.throwIfAborted(); await putObject(prefix + '/' + key, body); });
+    }, async (tx, storageOwnerId) => {
       signal.throwIfAborted();
       const [owned] = await tx.select({ id: repositoryMigrations.id }).from(repositoryMigrations).where(ownership).for('update');
       if (!owned) throw new Error('Import cancelled or ownership lost');
@@ -242,12 +241,10 @@ async function processClaimedMigration(migration: typeof repositoryMigrations.$i
       }).returning();
       await tx.update(repositoryMigrations).set({ repositoryId: repo.id, status: 'completed', progress: 100, completedAt: new Date(), updatedAt: new Date() }).where(ownership);
     });
-    published = true;
 
     console.log(`[Migration] Migration ${migrationId} completed`);
     await rm(tempRepoPath, { recursive: true, force: true });
   } catch (error) {
-    if (stagedPrefix && !published) await requestContext.run(new AbortController().signal, () => deletePrefix(stagedPrefix!)).catch(cleanupError => console.error("[Migration] Staging cleanup failed", cleanupError));
     console.error(`[Migration] Migration ${migrationId} failed:`, error);
     await db
       .update(repositoryMigrations)
