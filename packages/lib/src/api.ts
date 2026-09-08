@@ -36,6 +36,7 @@ import type {
   Release,
   ReleaseAsset,
   Gist,
+  GistSummary,
   GistFile,
   GistComment,
   GistFork,
@@ -733,10 +734,10 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     },
 
     gists: {
-      list: () => apiFetch<{ gists: Gist[]; hasMore: boolean }>("/api/gists"),
+      list: () => apiFetch<{ gists: GistSummary[]; hasMore: boolean }>("/api/gists"),
 
       getPublic: (limit = 20, offset = 0) =>
-        apiFetch<{ gists: Gist[]; hasMore: boolean }>(`/api/gists/public?limit=${limit}&offset=${offset}`),
+        apiFetch<{ gists: GistSummary[]; hasMore: boolean }>(`/api/gists/public?limit=${limit}&offset=${offset}`),
 
       get: (id: string) => apiFetch<Gist>(`/api/gists/${id}`),
 
@@ -794,7 +795,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
         }),
 
       getUserGists: (username: string, limit = 20, offset = 0) =>
-        apiFetch<{ gists: Gist[]; hasMore: boolean }>(`/api/users/${username}/gists?limit=${limit}&offset=${offset}`),
+        apiFetch<{ gists: GistSummary[]; hasMore: boolean }>(`/api/users/${username}/gists?limit=${limit}&offset=${offset}`),
     },
 
     releases: {
@@ -1446,10 +1447,10 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
       },
 
       gists: {
-        list: () => apiFetch<{ gists: Gist[] }>("/api/gists"),
+        list: () => apiFetch<{ gists: GistSummary[] }>("/api/gists"),
 
         getPublic: (limit = 20, offset = 0) =>
-          apiFetch<{ gists: Gist[]; hasMore: boolean }>(`/api/gists/public?limit=${limit}&offset=${offset}`),
+          apiFetch<{ gists: GistSummary[]; hasMore: boolean }>(`/api/gists/public?limit=${limit}&offset=${offset}`),
 
         get: (id: string) => apiFetch<Gist>(`/api/gists/${id}`),
 
@@ -1506,7 +1507,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
           }),
 
         getUserGists: (username: string, limit = 20, offset = 0) =>
-          apiFetch<{ gists: Gist[]; hasMore: boolean }>(`/api/users/${username}/gists?limit=${limit}&offset=${offset}`),
+          apiFetch<{ gists: GistSummary[]; hasMore: boolean }>(`/api/users/${username}/gists?limit=${limit}&offset=${offset}`),
       },
 
       migrations: {

@@ -103,11 +103,11 @@ function GistsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {gists.map((gist) => {
-            const files = Array.isArray((gist as any).files) ? (gist as any).files : [];
+            const files = gist.files;
             const firstFile = files[0];
             const language = firstFile?.language || getLanguage(firstFile?.filename || "");
             const languageClass = languageColors[language.toLowerCase()] || languageColors.default;
-            const owner = (gist as any).owner;
+            const owner = gist.owner;
 
             return (
               <Link
@@ -132,10 +132,10 @@ function GistsPage() {
                   </CardHeader>
                   <CardContent className="pt-0">
                     {/* Code Preview */}
-                    {firstFile?.content && (
+                    {firstFile?.preview && (
                       <div className="relative mb-4">
                         <div className="bg-muted/50 rounded-lg p-3 pb-5 font-mono text-xs text-muted-foreground line-clamp-4 overflow-hidden">
-                          <pre className="m-0">{firstFile.content}</pre>
+                          <pre className="m-0">{firstFile.preview}</pre>
                         </div>
                         <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-card to-transparent rounded-b-lg" />
                       </div>

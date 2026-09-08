@@ -452,6 +452,15 @@ export type GistFile = {
   updatedAt: string;
 };
 
+/** List responses contain previews; detail and edit responses contain full GistFile bodies. */
+export interface GistFilePreview extends Omit<GistFile, 'content'> {
+  preview: string;
+}
+
+export interface GistSummary extends Omit<Gist, 'files'> {
+  files: GistFilePreview[];
+}
+
 export type GistComment = {
   id: string;
   gistId: string;
@@ -806,8 +815,8 @@ export type ApiClient = {
     deleteAsset: (owner: string, repo: string, id: string, assetId: string) => Promise<{ success: boolean }>;
   };
   gists: {
-    list: () => Promise<{ gists: Gist[]; hasMore: boolean }>;
-    getPublic: (limit?: number, offset?: number) => Promise<{ gists: Gist[]; hasMore: boolean }>;
+    list: () => Promise<{ gists: GistSummary[]; hasMore: boolean }>;
+    getPublic: (limit?: number, offset?: number) => Promise<{ gists: GistSummary[]; hasMore: boolean }>;
     get: (id: string) => Promise<Gist>;
     create: (data: unknown) => Promise<Gist>;
     update: (id: string, data: unknown) => Promise<Gist>;
@@ -821,7 +830,7 @@ export type ApiClient = {
     createComment: (id: string, body: string) => Promise<GistComment>;
     updateComment: (commentId: string, body: string) => Promise<{ success: boolean }>;
       deleteComment: (commentId: string) => Promise<{ success: boolean }>;
-      getUserGists: (username: string, limit?: number, offset?: number) => Promise<{ gists: Gist[]; hasMore: boolean }>;
+      getUserGists: (username: string, limit?: number, offset?: number) => Promise<{ gists: GistSummary[]; hasMore: boolean }>;
   };
   migrations: {
     list: () => Promise<{ migrations: RepositoryMigration[]; hasMore?: boolean }>;
@@ -981,8 +990,8 @@ export type ApiClient = {
       deleteAsset: (owner: string, repo: string, id: string, assetId: string) => Promise<{ success: boolean }>;
     };
     gists: {
-      list: () => Promise<{ gists: Gist[] }>;
-      getPublic: (limit?: number, offset?: number) => Promise<{ gists: Gist[]; hasMore: boolean }>;
+      list: () => Promise<{ gists: GistSummary[] }>;
+      getPublic: (limit?: number, offset?: number) => Promise<{ gists: GistSummary[]; hasMore: boolean }>;
       get: (id: string) => Promise<Gist>;
       update: (id: string, data: unknown) => Promise<{ data: Gist }>;
       delete: (id: string) => Promise<{ success: boolean }>;
@@ -993,7 +1002,7 @@ export type ApiClient = {
       getForks: (id: string, limit?: number, offset?: number) => Promise<{ forks: GistFork[]; hasMore: boolean }>;
       getComments: (id: string, options?: ListPageOptions) => Promise<{ comments: GistComment[]; hasMore?: boolean; nextOffset?: number | null }>;
       createComment: (id: string, body: string) => Promise<GistComment>;
-      getUserGists: (username: string, limit?: number, offset?: number) => Promise<{ gists: Gist[]; hasMore: boolean }>;
+      getUserGists: (username: string, limit?: number, offset?: number) => Promise<{ gists: GistSummary[]; hasMore: boolean }>;
     };
     migrations: {
       list: () => Promise<{ migrations: RepositoryMigration[]; hasMore?: boolean }>;

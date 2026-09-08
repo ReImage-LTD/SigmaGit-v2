@@ -6,6 +6,7 @@ import { canReadGist, canWriteGist } from '../lib/gist-access';
 import { parseLimit, parseOffset } from '../lib/validation';
 import { writeRateLimit } from '../middleware/rate-limit';
 import { Hono } from 'hono';
+import { gistFilePreviewColumns } from '../lib/gist-preview';
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -25,8 +26,8 @@ async function loadReadableGist(id: string, user: { id: string } | null | undefi
   return gist;
 }
 
-function groupFilesByGistId(files: Array<{ gistId: string }>) {
-  const filesByGistId = new Map<string, Array<(typeof files)[number]>>();
+function groupFilesByGistId<T extends { gistId: string }>(files: T[]) {
+  const filesByGistId = new Map<string, T[]>();
   for (const file of files) {
     if (!filesByGistId.has(file.gistId)) {
       filesByGistId.set(file.gistId, []);
@@ -40,7 +41,11 @@ async function attachFilesToGists<T extends { id: string }>(gistsList: T[]) {
   if (gistsList.length === 0) return gistsList.map((gist) => ({ ...gist, files: [] as unknown[] }));
 
   const gistIds = gistsList.map((gist) => gist.id);
-  const files = await db.select().from(gistFiles).where(inArray(gistFiles.gistId, gistIds));
+  const files = await db
+    .select(gistFilePreviewColumns)
+    .from(gistFiles)
+    .where(inArray(gistFiles.gistId, gistIds))
+    .orderBy(gistFiles.createdAt, gistFiles.id);
   const filesByGistId = groupFilesByGistId(files);
 
   return gistsList.map((gist) => ({
@@ -60,7 +65,10 @@ async function attachFilesAndOwnersToGists<T extends { id: string; ownerId: stri
   const ownerIds = [...new Set(gistsList.map((gist) => gist.ownerId))];
 
   const [files, owners] = await Promise.all([
-    db.select().from(gistFiles).where(inArray(gistFiles.gistId, gistIds)),
+    db.select(gistFilePreviewColumns)
+      .from(gistFiles)
+      .where(inArray(gistFiles.gistId, gistIds))
+      .orderBy(gistFiles.createdAt, gistFiles.id),
     db
       .select({
         id: users.id,
