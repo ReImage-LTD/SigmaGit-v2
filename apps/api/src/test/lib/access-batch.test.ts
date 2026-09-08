@@ -74,3 +74,19 @@ describe('consistent repository permissions', () => {
     expect(await filterAccessibleRepos([repo], { id: 'admin', role: 'admin' }, true)).toEqual([]);
   });
 });
+
+describe('team repository listing visibility', () => {
+  for (const role of ['member', 'owner', 'admin'] as const) {
+    it('filters private team repositories for organization role ' + role, async () => {
+      const rows = [[], [{ organizationId: 'org', role }], []];
+      spyOn(db, 'select').mockImplementation((() => {
+        const result = rows.shift();
+        const builder = { from: () => builder, innerJoin: () => builder, where: () => Promise.resolve(result) };
+        return builder as unknown as ReturnType<typeof db.select>;
+      }) as unknown as typeof db.select);
+      const publicRepo = { ...repo, id: 'public', visibility: 'public' };
+      const visible = await filterAccessibleRepos([repo, publicRepo], { id: 'ordinary-member' });
+      expect(visible.map(r => r.id)).toEqual(role === 'member' ? ['public'] : ['repo', 'public']);
+    });
+  }
+});

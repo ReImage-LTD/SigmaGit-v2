@@ -481,7 +481,9 @@ app.get("/api/organizations/:org/teams/:team", requireAuth, async (c) => {
     .innerJoin(repositories, eq(teamRepositories.repositoryId, repositories.id))
     .where(eq(teamRepositories.teamId, team.id));
 
-  return c.json({ ...team, members: teamMembersList, repositories: teamRepos });
+  const accessible = await filterAccessibleRepos(teamRepos.map(row => row.repository), user);
+  const accessibleIds = new Set(accessible.map(repo => repo.id));
+  return c.json({ ...team, members: teamMembersList, repositories: teamRepos.filter(row => accessibleIds.has(row.repository.id)) });
 });
 
 app.delete("/api/organizations/:org/teams/:team", requireAuth, async (c) => {
