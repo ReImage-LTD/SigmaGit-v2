@@ -14,6 +14,12 @@ test('local storage preserves directory isolation, copy mapping and native strea
     expect(await storage.listDirectory('repos/u/repo')).toEqual(['HEAD', 'objects']);
     expect(await storage.getSize('repos/u/repo')).toBeNull();
     expect(await storage.getSize('repos/u/repo/HEAD')).toBe(4);
+    const source = await storage.getWithMetadata('repos/u/repo/HEAD');
+    await storage.copyObject('repos/u/repo/HEAD', 'repos/u/repo/copied', 4, source!.etag);
+    expect((await storage.get('repos/u/repo/copied'))?.toString()).toBe('main');
+    await storage.put('repos/u/repo/HEAD', 'changed');
+    await expect(storage.copyObject('repos/u/repo/HEAD', 'repos/u/repo/stale', 4, source!.etag)).rejects.toThrow('changed');
+    await storage.put('repos/u/repo/HEAD', 'main');
     expect(await storage.hasPrefix('repos/u/repo')).toBe(true);
     expect(await storage.hasPrefix('missing')).toBe(false);
     await storage.copyPrefix('repos/u/repo', 'repos/v/copy');

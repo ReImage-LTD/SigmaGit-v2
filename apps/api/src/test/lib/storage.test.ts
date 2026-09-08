@@ -3,6 +3,23 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { S3StorageBackend, directoryPrefix } from '../../storage';
 
 afterEach(() => mock.restore());
+
+test('verified copy forwards the ETag from the exact downloaded object', async () => {
+  const commands: Array<{ constructor: { name: string }; input: Record<string, unknown> }> = [];
+  spyOn(S3Client.prototype, 'send').mockImplementation((async (command: typeof commands[number]) => {
+    commands.push(command);
+    if (command.constructor.name === 'GetObjectCommand') {
+      return { ETag: 'version-one', Body: { transformToWebStream: () => new Response('chunk').body! } };
+    }
+    return {};
+  }) as unknown as S3Client['send']);
+  const storage = backend();
+  const source = await storage.getWithMetadata('upload/chunk');
+  expect(source!.data.toString()).toBe('chunk');
+  await storage.copyObject('upload/chunk', 'blob/chunk', source!.data.length, source!.etag);
+  expect(commands.map(command => command.constructor.name)).toEqual(['GetObjectCommand', 'CopyObjectCommand']);
+  expect(commands[1].input.CopySourceIfMatch).toBe('version-one');
+});
 export function backend() {
   return new S3StorageBackend({ endpoint: 'https://unused.invalid', region: 'test', bucket: 'bucket', accessKeyId: 'test', secretAccessKey: 'test' });
 }

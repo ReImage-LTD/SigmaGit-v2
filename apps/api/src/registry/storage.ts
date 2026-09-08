@@ -1,3 +1,4 @@
+import { mapConcurrent } from '../lib/map-concurrent';
 import { concatenateStreams } from '../lib/concatenate-streams';
 import { requestSignal } from '../lib/request-context';
 /**
@@ -21,6 +22,8 @@ import {
 } from './oci';
 import {
   getObject,
+  getObjectWithMetadata,
+  copyObject,
   putObject,
   objectExists,
   listObjects,
@@ -71,7 +74,9 @@ function getRegistryBlobChunkKey(
   imageName: string,
   digest: string,
   index: number,
+  uploadId: string,
 ): string {
+  if (!isValidUploadUuid(uploadId)) throw new Error("Invalid upload ID");
   assertOwnerImage(owner, imageName);
   if (!isValidOciDigest(digest)) throw new Error('Invalid registry digest');
   if (!Number.isInteger(index) || index < 0 || index > 1_000_000) {
@@ -79,7 +84,7 @@ function getRegistryBlobChunkKey(
   }
   const [alg, hex] = digest.split(':');
   return assertSafeRegistryKey(
-    `${REGISTRY_PREFIX}${owner}/${imageName}/blob-chunks/${alg}/${hex}/${index}`,
+    `${REGISTRY_PREFIX}${owner}/${imageName}/blob-chunks/${alg}/${hex}/${uploadId}/${index}`,
   );
 }
 
@@ -316,35 +321,41 @@ export async function finalizeUpload(
     return { ok: true };
   }
 
+  const copies: Array<{ key: string; target: string; size: number; etag: string }> = [];
   const chunkKeys: string[] = [];
   let total = 0;
-  let nextIndex = 0;
-
   for (const uploadChunkKey of index.chunks) {
+    requestSignal()?.throwIfAborted();
     assertSafeRegistryKey(uploadChunkKey);
-    const chunk = await getObject(uploadChunkKey);
-    if (!chunk) return { ok: false, reason: 'missing' };
-    hash.update(chunk);
-
-    const targetKey = getRegistryBlobChunkKey(owner, imageName, digest, nextIndex++);
-    await putObject(targetKey, chunk);
-    chunkKeys.push(targetKey);
-    total += chunk.length;
+    const source = await getObjectWithMetadata(uploadChunkKey);
+    if (!source) return { ok: false, reason: 'missing' };
+    if (!source.etag) throw new Error('Storage did not return an ETag for verified copy');
+    hash.update(source.data);
+    total += source.data.length;
+    if (total + (trailingChunk?.length ?? 0) > REGISTRY_MAX_BLOB_BYTES) return { ok: false, reason: 'too_large' };
+    const target = getRegistryBlobChunkKey(owner, imageName, digest, copies.length, uuid);
+    copies.push({ key: uploadChunkKey, target, size: source.data.length, etag: source.etag });
+    chunkKeys.push(target);
   }
-
   if (hasTrailing && trailingChunk) {
     hash.update(trailingChunk);
-    const targetKey = getRegistryBlobChunkKey(owner, imageName, digest, nextIndex);
-    await putObject(targetKey, trailingChunk);
-    chunkKeys.push(targetKey);
     total += trailingChunk.length;
+    chunkKeys.push(getRegistryBlobChunkKey(owner, imageName, digest, copies.length, uuid));
   }
+  if (`sha256:${hash.digest('hex')}` !== digest) return { ok: false, reason: 'digest_mismatch' };
 
-  const computed = `sha256:${hash.digest('hex')}`;
-  if (computed !== digest) {
-    return { ok: false, reason: 'digest_mismatch' };
+  // Each upload stages into its own directory, so failed copies cannot damage a published blob.
+  try {
+    await mapConcurrent(copies, 4, async item => {
+      requestSignal()?.throwIfAborted();
+      await copyObject(item.key, item.target, item.size, item.etag);
+    });
+    if (hasTrailing && trailingChunk) await putObject(chunkKeys[chunkKeys.length - 1], trailingChunk);
+  } catch (error) {
+    const stagingPrefix = chunkKeys[0].slice(0, chunkKeys[0].lastIndexOf('/'));
+    await deletePrefix(stagingPrefix).catch(() => {});
+    throw error;
   }
-
   await writeChunkedBlobIndex(owner, imageName, digest, chunkKeys, total);
   await deleteUpload(uuid);
   return { ok: true };

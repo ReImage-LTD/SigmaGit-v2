@@ -22,6 +22,7 @@ import { boundedStream } from './lib/bounded-stream';
 import { config } from './config';
 import { atomicWriteFile } from './lib/atomic-file';
 import { createObjectReadCache } from './lib/object-read-cache';
+import { createHash } from 'node:crypto';
 
 function isThrottleLikeError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -79,9 +80,16 @@ export function directoryPrefix(prefix: string): string {
 
 export type StorageType = 's3' | 'local';
 
+export interface StoredObject {
+  data: Buffer;
+  etag?: string;
+}
+
 export interface StorageBackend {
   type: StorageType;
   get(key: string): Promise<Buffer | null>;
+  getWithMetadata(key: string): Promise<StoredObject | null>;
+  copyObject(key: string, targetKey: string, size: number, etag?: string): Promise<void>;
   put(key: string, body: Buffer | Uint8Array | string, contentType?: string): Promise<void>;
   delete(key: string): Promise<void>;
   exists(key: string): Promise<boolean>;
@@ -116,6 +124,10 @@ export class S3StorageBackend implements StorageBackend {
   }
 
   async get(key: string): Promise<Buffer | null> {
+    return (await this.getWithMetadata(key))?.data ?? null;
+  }
+
+  async getWithMetadata(key: string): Promise<StoredObject | null> {
     if (!this.client) {
       throw new Error('S3 is not configured');
     }
@@ -138,7 +150,7 @@ export class S3StorageBackend implements StorageBackend {
           signal,
         ),
       ).arrayBuffer();
-      return Buffer.from(bytes);
+      return { data: Buffer.from(bytes), etag: response.ETag };
     } catch (error: any) {
       if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
         return null;
@@ -311,7 +323,7 @@ export class S3StorageBackend implements StorageBackend {
     } while (continuationToken);
   }
 
-  private async copyObject(key: string, targetKey: string, size: number, etag?: string): Promise<void> {
+  async copyObject(key: string, targetKey: string, size: number, etag?: string): Promise<void> {
     if (!this.client) throw new Error('S3 is not configured');
     const client = this.client;
     const CopySource = encodeURIComponent(this.bucket + '/' + key);
@@ -424,6 +436,17 @@ export class LocalStorageBackend implements StorageBackend {
 
   constructor(basePath = config.storage.localPath) {
     this.basePath = basePath;
+  }
+
+  async getWithMetadata(key: string): Promise<StoredObject | null> {
+    const data = await this.get(key);
+    return data ? { data, etag: createHash('sha256').update(data).digest('hex') } : null;
+  }
+
+  async copyObject(key: string, targetKey: string, _size: number, etag?: string): Promise<void> {
+    const source = await this.getWithMetadata(key);
+    if (!source || (etag && source.etag !== etag)) throw new Error('Copy source changed or missing');
+    await this.put(targetKey, source.data);
   }
 
   private ensureBasePath(): Promise<void> {
@@ -679,6 +702,15 @@ export const getRepoPrefix = (owner: string, repo: string): string => {
 export const getObject = async (key: string): Promise<Buffer | null> => {
   const storage = getStorageBackend();
   return storage.type === 's3' ? objectReadCache.get(key, () => storage.get(key)) : storage.get(key);
+};
+
+export const getObjectWithMetadata = (key: string): Promise<StoredObject | null> =>
+  getStorageBackend().getWithMetadata(key);
+
+export const copyObject = async (key: string, targetKey: string, size: number, etag?: string): Promise<void> => {
+  objectReadCache.invalidate(targetKey);
+  try { await getStorageBackend().copyObject(key, targetKey, size, etag); }
+  finally { objectReadCache.invalidate(targetKey); }
 };
 
 export const putObject = async (
