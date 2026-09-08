@@ -1,4 +1,5 @@
 import {
+  enforceAuthRateLimit,
   getClientIp,
   ingressRateLimit,
   rateLimitMiddleware,
@@ -126,5 +127,31 @@ describe('socket and proxy identity', () => {
       resolveForwardedClientIp('2001:db8::1', '192.0.2.2, 2001:db8::2', ['2001:db8::/32']),
     ).toBe('192.0.2.2');
     expect(resolveForwardedClientIp('2001:db8::1', 'arbitrary-key', ['2001:db8::/32'])).toBeNull();
+  });
+});
+
+ describe('protocol password budget', () => {
+  it('shares the HTTP auth quota with Git and registry password checks', async () => {
+    const app = new Hono<{ Variables: AuthVariables }>();
+    app.use('*', rateLimitMiddleware);
+    let checks = 0;
+    app.all('*', async c => {
+      const limited = await enforceAuthRateLimit(c);
+      if (limited) return limited;
+      checks++;
+      return c.text('invalid credentials', 401);
+    });
+    const env = fixedTransport();
+    const quota = config.isProduction ? Math.max(1, Math.floor(config.rateLimit.auth / 4)) : config.rateLimit.auth;
+    for (let i = 0; i < quota; i++) {
+      const path = i % 2 ? '/api/registry/token' : '/owner/repo.git/info/refs';
+      expect((await app.fetch(new Request('http://localhost' + path), env)).status).toBe(401);
+    }
+    for (const [path, method] of [['/api/auth/sign-in/email', 'POST'], ['/api/registry/token', 'GET'], ['/owner/repo.git/git-upload-pack', 'POST']]) {
+      const response = await app.fetch(new Request('http://localhost' + path, { method }), env);
+      expect(response.status).toBe(429);
+      expect(response.headers.has('retry-after')).toBe(true);
+    }
+    expect(checks).toBe(quota);
   });
 });

@@ -8,6 +8,7 @@
  *   docker pull <api-host>/owner/image:tag
  */
 
+import { enforceAuthRateLimit } from '../middleware/rate-limit';
 import { Hono } from "hono";
 import { createHash } from "crypto";
 import { randomUUID } from "crypto";
@@ -36,7 +37,7 @@ import {
   canPullRegistry,
   type RegistryClaims,
 } from "../registry/auth";
-import type { AuthUser } from "../middleware/auth";
+import type { AuthUser, AuthVariables } from "../middleware/auth";
 
 const REGISTRY_REALM_PATH = "/api/registry/token";
 
@@ -92,7 +93,7 @@ async function requireRegistryAuth(
   return registryChallenge(scope);
 }
 
-const app = new Hono();
+const app = new Hono<{ Variables: AuthVariables }>();
 
 // ----- Token endpoint (Docker login flow) -----
 app.get(REGISTRY_REALM_PATH, async (c) => {
@@ -105,7 +106,8 @@ app.get(REGISTRY_REALM_PATH, async (c) => {
   if (!parsed) {
     return c.json({ error: "invalid scope" }, 400);
   }
-  const user = await resolveRegistryBasicAuth(c.req.header("Authorization"));
+  const user = await resolveRegistryBasicAuth(c.req.header("Authorization"), () => enforceAuthRateLimit(c));
+  if (user instanceof Response) return user;
   if (!user) {
     return new Response(undefined, {
       status: 401,

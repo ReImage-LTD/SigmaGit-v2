@@ -1,3 +1,5 @@
+import { enforceAuthRateLimit } from '../middleware/rate-limit';
+import type { Context } from 'hono';
 import { cachedGit } from '../git/read-cache';
 import { collectFetchObjects } from '../lib/git-fetch-objects';
 import { createUploadPackStream } from '../lib/git-upload-pack';
@@ -23,7 +25,7 @@ import { syncWorkflows } from "../workflows/sync";
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
-async function resolveBasicAuthUser(authHeader: string | undefined): Promise<AuthUser | null> {
+async function resolveBasicAuthUser(authHeader: string | undefined, beforePassword: () => Promise<Response | undefined>): Promise<AuthUser | Response | null> {
   if (!authHeader || !authHeader.startsWith("Basic ")) {
     return null;
   }
@@ -89,6 +91,9 @@ async function resolveBasicAuthUser(authHeader: string | undefined): Promise<Aut
     // Fall back to password auth when token verification fails.
   }
 
+  const limited = await beforePassword();
+  if (limited) return limited;
+
   let email = identifier;
   if (!identifier.includes("@")) {
     const userRow = await db
@@ -135,12 +140,12 @@ async function resolveBasicAuthUser(authHeader: string | undefined): Promise<Aut
   }
 }
 
-async function resolveGitUser(c: { get: (key: string) => AuthUser | undefined; req: { header: (name: string) => string | undefined } }): Promise<AuthUser | null> {
+async function resolveGitUser(c: Context<{ Variables: AuthVariables }>): Promise<AuthUser | Response | null> {
   const currentUser = c.get("user");
   if (currentUser) {
     return currentUser;
   }
-  return await resolveBasicAuthUser(c.req.header("authorization"));
+  return await resolveBasicAuthUser(c.req.header("authorization"), () => enforceAuthRateLimit(c));
 }
 
 async function canReadRepository(repo: { id: string; ownerId: string; organizationId?: string | null; visibility: string }, currentUser: AuthUser | null): Promise<boolean> {
@@ -194,6 +199,7 @@ app.get("/:owner/:name/info/refs", async (c) => {
   const name = c.req.param("name");
   const service = c.req.query("service");
   const currentUser = await resolveGitUser(c);
+  if (currentUser instanceof Response) return currentUser;
 
   if (!service || (service !== "git-upload-pack" && service !== "git-receive-pack")) {
     return c.json({ error: "Invalid service" }, 404);
@@ -241,6 +247,7 @@ app.post("/:owner/:name/git-upload-pack", async (c) => {
   const owner = c.req.param("owner");
   const name = c.req.param("name");
   const currentUser = await resolveGitUser(c);
+  if (currentUser instanceof Response) return currentUser;
 
   const repo = await resolveRepositoryBySlug(owner, name);
   if (!repo) {
@@ -753,6 +760,7 @@ app.post("/:owner/:name/git-receive-pack", async (c) => {
   const owner = c.req.param("owner");
   const name = c.req.param("name");
   const currentUser = await resolveGitUser(c);
+  if (currentUser instanceof Response) return currentUser;
 
   const repo = await resolveRepositoryBySlug(owner, name);
   if (!repo) {

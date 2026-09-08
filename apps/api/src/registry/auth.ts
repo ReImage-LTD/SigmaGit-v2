@@ -88,7 +88,7 @@ export function verifyRegistryToken(token: string): RegistryClaims | null {
 }
 
 /** Resolve Basic auth to AuthUser (username+password or username+API key). */
-export async function resolveRegistryBasicAuth(authHeader: string | undefined): Promise<AuthUser | null> {
+export async function resolveRegistryBasicAuth(authHeader: string | undefined, beforePassword: () => Promise<Response | undefined>): Promise<AuthUser | Response | null> {
   if (!authHeader || !authHeader.startsWith("Basic ")) return null;
   const token = authHeader.slice("Basic ".length).trim();
   let decoded: string;
@@ -124,6 +124,9 @@ export async function resolveRegistryBasicAuth(authHeader: string | undefined): 
   } catch {
     // ignore
   }
+
+  const limited = await beforePassword();
+  if (limited) return limited;
 
   // Password auth
   let email = identifier;

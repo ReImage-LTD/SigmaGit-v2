@@ -191,6 +191,11 @@ async function enforceTier(
   }
 }
 
+/** Shared password-attempt budget for HTTP and protocol authentication. */
+export function enforceAuthRateLimit(c: RateLimitContext): Promise<Response | undefined> {
+  return enforceTier(c, 'auth');
+}
+
 /** Aggregate IP budget runs before auth/session/database work, including Git. */
 export const ingressRateLimit = createMiddleware(async (c, next) => {
   if (!isHealthPath(c.req.path) && !isInternalRequest(c)) {
