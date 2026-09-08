@@ -21,6 +21,7 @@ import { requestSignal } from './lib/request-context';
 import { boundedStream } from './lib/bounded-stream';
 import { config } from './config';
 import { atomicWriteFile } from './lib/atomic-file';
+import { createObjectReadCache } from './lib/object-read-cache';
 
 function isThrottleLikeError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -669,6 +670,7 @@ export function getStorageBackend(): StorageBackend {
 
 let s3Backend: S3StorageBackend | null = null;
 let localBackend: LocalStorageBackend | null = null;
+const objectReadCache = createObjectReadCache();
 
 export const getRepoPrefix = (owner: string, repo: string): string => {
   return `repos/${owner}/${repo}`;
@@ -676,7 +678,7 @@ export const getRepoPrefix = (owner: string, repo: string): string => {
 
 export const getObject = async (key: string): Promise<Buffer | null> => {
   const storage = getStorageBackend();
-  return storage.get(key);
+  return storage.type === 's3' ? objectReadCache.get(key, () => storage.get(key)) : storage.get(key);
 };
 
 export const putObject = async (
@@ -685,12 +687,16 @@ export const putObject = async (
   contentType?: string,
 ): Promise<void> => {
   const storage = getStorageBackend();
-  return storage.put(key, body, contentType);
+  objectReadCache.invalidate(key);
+  try { await storage.put(key, body, contentType); }
+  finally { objectReadCache.invalidate(key); }
 };
 
 export const deleteObject = async (key: string): Promise<void> => {
   const storage = getStorageBackend();
-  return storage.delete(key);
+  objectReadCache.invalidate(key);
+  try { await storage.delete(key); }
+  finally { objectReadCache.invalidate(key); }
 };
 
 export const objectExists = async (key: string): Promise<boolean> => {
@@ -710,12 +716,16 @@ export const listObjects = async (prefix: string): Promise<string[]> => {
 
 export const deletePrefix = async (prefix: string): Promise<void> => {
   const storage = getStorageBackend();
-  return storage.deletePrefix(prefix);
+  objectReadCache.invalidate(prefix, true);
+  try { await storage.deletePrefix(prefix); }
+  finally { objectReadCache.invalidate(prefix, true); }
 };
 
 export const copyPrefix = async (sourcePrefix: string, targetPrefix: string): Promise<void> => {
   const storage = getStorageBackend();
-  return storage.copyPrefix(sourcePrefix, targetPrefix);
+  objectReadCache.invalidate(targetPrefix, true);
+  try { await storage.copyPrefix(sourcePrefix, targetPrefix); }
+  finally { objectReadCache.invalidate(targetPrefix, true); }
 };
 
 export const getObjectStream = async (key: string, signal?: AbortSignal): Promise<ReadableStream | null> => {
