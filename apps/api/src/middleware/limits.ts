@@ -11,6 +11,7 @@ const memoryPressure = createMemoryPressure(MEMORY_BUDGET_BYTES);
 export const GIT_PUSH_SIZE_LIMIT = 100 * 1024 * 1024; // 100MB
 export const GIT_MAX_OBJECTS_PER_PUSH = 50000;
 export const GIT_MAX_UPLOAD_PACK_OBJECTS = 10000;
+export const GIT_MAX_UPLOAD_PACK_BYTES = 512 * 1024 * 1024; // aggregate uncompressed fetch budget
 export const GIT_MAX_DELTA_DEPTH = 100;
 export const GIT_MAX_OBJECT_BYTES = 10 * 1024 * 1024; // 10MB per object in pack
 export const MAX_FILE_CACHE_BYTES = 256 * 1024; // 256KB — skip Redis cache above this

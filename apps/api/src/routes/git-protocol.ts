@@ -1,3 +1,5 @@
+import { createUploadPackStream } from '../lib/git-upload-pack';
+import { requestSignal } from '../lib/request-context';
 import { canRunnerReadRepository } from '../lib/runner-git-access';
 import { applyDelta } from '../lib/git-delta';
 import { applyRefUpdates, type GitRefUpdate } from '../lib/git-ref-updates';
@@ -12,7 +14,7 @@ import { getAuth } from "../auth";
 import { putObject, deleteObject, getObject } from "../s3";
 import { createHash } from "crypto";
 import { deflate, inflate, inflateWithConsumedBytes } from "../lib/async-zlib";
-import { GIT_MAX_OBJECTS_PER_PUSH, GIT_MAX_DELTA_DEPTH, GIT_MAX_UPLOAD_PACK_OBJECTS, GIT_MAX_OBJECT_BYTES, GIT_PUSH_SIZE_LIMIT, forceGCIfNeeded, measureMemory } from "../middleware/limits";
+import { GIT_MAX_OBJECTS_PER_PUSH, GIT_MAX_DELTA_DEPTH, GIT_MAX_UPLOAD_PACK_OBJECTS, GIT_MAX_UPLOAD_PACK_BYTES, GIT_MAX_OBJECT_BYTES, GIT_PUSH_SIZE_LIMIT, forceGCIfNeeded, measureMemory } from "../middleware/limits";
 import { readRequestBodyLimited, RequestBodyTooLargeError } from "../lib/request-body";
 import { triggerWorkflows } from "../workflows/trigger";
 import { syncWorkflows } from "../workflows/sync";
@@ -282,14 +284,17 @@ app.post("/:owner/:name/git-upload-pack", async (c) => {
         ? await collectReachableOids(store.fs, store.dir, uploadRequest.haves)
         : new Set<string>();
 
-    const objects = await collectReachableObjects(
+    const objects = collectReachableObjects(
       store.fs,
       store.dir,
       uploadRequest.wants,
       haveReachable
     );
-    const pack = await buildPackFile(objects);
-    const response = Buffer.concat([Buffer.from("0008NAK\n", "ascii"), pack]);
+    const response = await createUploadPackStream(objects, {
+      maxObjects: GIT_MAX_UPLOAD_PACK_OBJECTS,
+      maxBytes: GIT_MAX_UPLOAD_PACK_BYTES,
+      signal: requestSignal(c.req.raw.signal),
+    });
 
     return new Response(response, {
       status: 200,
@@ -300,8 +305,8 @@ app.post("/:owner/:name/git-upload-pack", async (c) => {
     });
   } catch (error) {
     console.error("[API] upload-pack error:", error);
-    return new Response("0008NAK\n", {
-      status: 200,
+    return new Response("Unable to generate upload pack", {
+      status: 500,
       headers: {
         "Content-Type": "application/x-git-upload-pack-result",
         "Cache-Control": "no-cache",
@@ -546,16 +551,16 @@ async function collectReachableOids(fs: any, dir: string, startOids: string[]): 
   return visited;
 }
 
-async function collectReachableObjects(
+async function* collectReachableObjects(
   fs: any,
   dir: string,
   startOids: string[],
   excludeOids: Set<string> = new Set()
-): Promise<UploadObject[]> {
+): AsyncGenerator<UploadObject> {
   const queued = new Set<string>(startOids);
   const stack = [...startOids];
   const visited = new Set<string>();
-  const objects: UploadObject[] = [];
+
 
   const enqueue = (oid: string | undefined) => {
     if (!oid || !/^[0-9a-f]{40}$/i.test(oid)) {
@@ -569,10 +574,7 @@ async function collectReachableObjects(
   };
 
   while (stack.length > 0) {
-    if (objects.length >= GIT_MAX_UPLOAD_PACK_OBJECTS) {
-      console.warn(`[API] upload-pack: object limit ${GIT_MAX_UPLOAD_PACK_OBJECTS} reached`);
-      break;
-    }
+    requestSignal()?.throwIfAborted();
 
     const oid = stack.pop()!;
     queued.delete(oid);
@@ -593,13 +595,12 @@ async function collectReachableObjects(
       objectType = read.type;
       objectData = toObjectBuffer(read.object);
       if (objectData.length > GIT_MAX_OBJECT_BYTES) {
-        console.warn(`[API] upload-pack: skipping object ${oid} (${objectData.length} bytes)`);
-        continue;
+        throw new Error(`Upload pack object ${oid} exceeds size limit`);
       }
-      objects.push({ oid, type: objectType, data: objectData });
-    } catch {
-      continue;
+    } catch (error) {
+      throw new Error(`Unable to read upload pack object ${oid}`, { cause: error });
     }
+    yield { oid, type: objectType, data: objectData };
 
     try {
       if (objectType === "commit") {
@@ -622,65 +623,6 @@ async function collectReachableObjects(
     }
   }
 
-  return objects;
-}
-
-function encodePackObjectHeader(type: number, size: number): Buffer {
-  const bytes: number[] = [];
-
-  let first = ((type & 0x7) << 4) | (size & 0x0f);
-  size >>>= 4;
-  if (size > 0) {
-    first |= 0x80;
-  }
-  bytes.push(first);
-
-  while (size > 0) {
-    let next = size & 0x7f;
-    size >>>= 7;
-    if (size > 0) {
-      next |= 0x80;
-    }
-    bytes.push(next);
-  }
-
-  return Buffer.from(bytes);
-}
-
-async function buildPackFile(objects: UploadObject[]): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  const typeMap: Record<UploadObject["type"], number> = {
-    commit: OBJ_COMMIT,
-    tree: OBJ_TREE,
-    blob: OBJ_BLOB,
-    tag: OBJ_TAG,
-  };
-
-  const header = Buffer.alloc(12);
-  header.write("PACK", 0, "ascii");
-  header.writeUInt32BE(2, 4);
-  header.writeUInt32BE(objects.length, 8);
-  chunks.push(header);
-
-  const COMPRESS_BATCH = 20;
-  for (let i = 0; i < objects.length; i += COMPRESS_BATCH) {
-    const batch = objects.slice(i, i + COMPRESS_BATCH);
-    for (const object of batch) {
-      const type = typeMap[object.type];
-      const objectHeader = encodePackObjectHeader(type, object.data.length);
-      const compressed = await deflate(object.data);
-      chunks.push(objectHeader, compressed);
-    }
-
-    if (i > 0 && i % 200 === 0) {
-      forceGCIfNeeded();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-  }
-
-  const packWithoutTrailer = Buffer.concat(chunks);
-  const trailer = createHash("sha1").update(packWithoutTrailer).digest();
-  return Buffer.concat([packWithoutTrailer, trailer]);
 }
 
 function typeToString(type: number): string {
