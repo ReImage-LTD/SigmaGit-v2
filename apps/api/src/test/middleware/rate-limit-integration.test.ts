@@ -179,3 +179,30 @@ describe('registry quota identity', () => {
     expect(await otherApi.json()).toEqual({ tier: 'public-write', user: null });
   });
 });
+
+describe('search method quota', () => {
+  for (const authenticated of [false, true]) {
+    it('shares GET and HEAD search quotas (authenticated=' + authenticated + ')', async () => {
+      const app = new Hono<{ Variables: AuthVariables }>();
+      app.use('*', async (c, next) => {
+        if (authenticated) c.set('user', { id: 'head-search-user', name: 'Test', username: 'test', email: 'test@example.com' });
+        await next();
+      });
+      app.use('*', rateLimitMiddleware);
+      let searches = 0;
+      app.get('/api/search', c => { searches++; return c.text('results'); });
+      const env = fixedTransport();
+      const quota = config.isProduction ? Math.max(1, Math.floor(config.rateLimit.search / 4)) : config.rateLimit.search;
+      for (let i = 0; i < quota; i++) {
+        const response = await app.fetch(new Request('http://localhost/api/search', { method: i % 2 ? 'GET' : 'HEAD' }), env);
+        expect(response.status).toBe(200);
+      }
+      for (const method of ['GET', 'HEAD']) {
+        const response = await app.fetch(new Request('http://localhost/api/search', { method }), env);
+        expect(response.status).toBe(429);
+        expect(response.headers.has('retry-after')).toBe(true);
+      }
+      expect(searches).toBe(quota);
+    });
+  }
+});

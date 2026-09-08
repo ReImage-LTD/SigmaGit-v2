@@ -130,7 +130,7 @@ export function resolveRateLimitTier(c: RateLimitContext): RateLimitTier | null 
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
     return isAuthenticated(c) ? 'write' : 'public-write';
   }
-  if (method === 'GET' && path === '/api/search') return 'search';
+  if ((method === 'GET' || method === 'HEAD') && path === '/api/search') return 'search';
   return isAuthenticated(c) ? 'general' : 'unauth';
 }
 
