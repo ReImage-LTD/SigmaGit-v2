@@ -1,4 +1,4 @@
-import { getStorageOwnerId } from '../lib/repo-helpers';
+import { deleteAccount, isOrganizationOwnershipError } from '../lib/delete-account';
 import {
   deleteAccountBodySchema,
   getValidated,
@@ -476,22 +476,13 @@ app.delete(
       return c.json({ error: 'Password is incorrect' }, 403);
     }
 
-    const repos = await db.query.repositories.findMany({
-      where: eq(repositories.ownerId, user.id),
-      columns: { name: true, ownerId: true, organizationId: true, storageOwnerId: true },
-    });
-
-    const storageErrors: string[] = [];
-
-    for (const repo of repos) {
-      const repoPrefix = getRepoPrefix(getStorageOwnerId(repo), repo.name);
-      try {
-        await deletePrefix(repoPrefix);
-      } catch (error) {
-        console.error(`[Settings] Failed to delete storage for repo ${repo.name}:`, error);
-        storageErrors.push(repo.name);
-      }
+    try {
+      await deleteAccount(user.id);
+    } catch (error) {
+      if (isOrganizationOwnershipError(error)) return c.json({ error: 'Transfer organization ownership before deleting your account' }, 409);
+      throw error;
     }
+    const storageErrors: string[] = [];
 
     const avatarPrefix = `avatars/${user.id}`;
     try {
@@ -501,7 +492,7 @@ app.delete(
       storageErrors.push('avatar');
     }
 
-    await db.delete(users).where(eq(users.id, user.id));
+
 
     return c.json({
       success: true,

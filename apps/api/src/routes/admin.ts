@@ -1,3 +1,4 @@
+import { deleteAccount, isOrganizationOwnershipError } from '../lib/delete-account';
 import { Hono } from "hono";
 import {
   db,
@@ -665,25 +666,12 @@ app.delete("/api/admin/users/:id", async (c) => {
     }
   }
 
-  // Remove non-cascading references to this user before deleting.
-  await Promise.all([
-    db.update(issues).set({ closedById: null }).where(eq(issues.closedById, id)),
-    db
-      .update(pullRequests)
-      .set({ mergedById: null, closedById: null })
-      .where(or(eq(pullRequests.mergedById, id), eq(pullRequests.closedById, id))),
-  ]);
-
-  // Delete owned repositories explicitly so their git storage is cleaned up.
-  const userRepos = await db.query.repositories.findMany({
-    where: eq(repositories.ownerId, id),
-    columns: { id: true, name: true, ownerId: true, organizationId: true, storageOwnerId: true },
-  });
-  for (const repository of userRepos) {
-    await deleteRepositoryCompletely(repository);
+  try {
+    await deleteAccount(id);
+  } catch (error) {
+    if (isOrganizationOwnershipError(error)) return c.json({ error: 'Transfer organization ownership before deleting this account' }, 409);
+    throw error;
   }
-
-  await db.delete(users).where(eq(users.id, id));
 
   await logAuditEvent(
     actor.id,
