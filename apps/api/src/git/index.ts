@@ -1,3 +1,4 @@
+import { cachedGit } from './read-cache';
 import { createCachedGitLoad } from '../lib/cached-git-load';
 import { requestSignal } from '../lib/request-context';
 import { mapConcurrent } from '../lib/map-concurrent';
@@ -205,7 +206,7 @@ export async function getCommits(
 
     while (currentOid && count < limit + skip) {
       try {
-        const { commit } = await git.readCommit({ fs, dir, oid: currentOid });
+        const { commit } = await cachedGit.readCommit({ fs, dir, oid: currentOid });
 
         if (skipped >= skip) {
           if (count < limit) {
@@ -272,7 +273,7 @@ export async function getCommitCount(fs: S3Fs, dir: string, ref: string): Promis
 
     while (currentOid) {
       try {
-        const { commit } = await git.readCommit({ fs, dir, oid: currentOid });
+        const { commit } = await cachedGit.readCommit({ fs, dir, oid: currentOid });
         count++;
         currentOid = commit.parent.length > 0 ? commit.parent[0] : null;
       } catch (error: any) {
@@ -319,14 +320,14 @@ export async function getTree(
       return null;
     }
 
-    const { commit } = await git.readCommit({ fs, dir, oid: commitOid });
+    const { commit } = await cachedGit.readCommit({ fs, dir, oid: commitOid });
 
     let treeOid = commit.tree;
 
     if (filepath && filepath !== "") {
       const parts = filepath.split("/").filter(Boolean);
       for (const part of parts) {
-        const tree = await git.readTree({ fs, dir, oid: treeOid });
+        const tree = await cachedGit.readTree({ fs, dir, oid: treeOid });
         const entry = tree.tree.find((e) => e.path === part);
         if (!entry || entry.type !== "tree") {
           return null;
@@ -335,7 +336,7 @@ export async function getTree(
       }
     }
 
-    const tree = await git.readTree({ fs, dir, oid: treeOid });
+    const tree = await cachedGit.readTree({ fs, dir, oid: treeOid });
 
     const entries: TreeEntry[] = tree.tree.map((entry) => ({
       mode: entry.mode,
@@ -386,13 +387,13 @@ export async function getFile(
       return null;
     }
 
-    const { commit } = await git.readCommit({ fs, dir, oid: commitOid });
+    const { commit } = await cachedGit.readCommit({ fs, dir, oid: commitOid });
 
     const parts = filepath.split("/").filter(Boolean);
     let treeOid = commit.tree;
 
     for (let i = 0; i < parts.length - 1; i++) {
-      const tree = await git.readTree({ fs, dir, oid: treeOid });
+      const tree = await cachedGit.readTree({ fs, dir, oid: treeOid });
       const entry = tree.tree.find((e) => e.path === parts[i]);
       if (!entry || entry.type !== "tree") {
         return null;
@@ -400,7 +401,7 @@ export async function getFile(
       treeOid = entry.oid;
     }
 
-    const tree = await git.readTree({ fs, dir, oid: treeOid });
+    const tree = await cachedGit.readTree({ fs, dir, oid: treeOid });
     const filename = parts[parts.length - 1];
     const fileEntry = tree.tree.find((e) => e.path === filename && e.type === "blob");
 
@@ -418,7 +419,7 @@ export async function getFile(
       // stat unavailable — enforce limit after read instead
     }
 
-    const { blob } = await git.readBlob({ fs, dir, oid: fileEntry.oid });
+    const { blob } = await cachedGit.readBlob({ fs, dir, oid: fileEntry.oid });
     if (blob.length > MAX_FILE_SERVE_BYTES) {
       return null;
     }
@@ -437,7 +438,7 @@ export async function getBlobByOid(
   oid: string
 ): Promise<string | null> {
   try {
-    const { blob } = await git.readBlob({ fs, dir, oid });
+    const { blob } = await cachedGit.readBlob({ fs, dir, oid });
     return new TextDecoder().decode(blob);
   } catch {
     return null;
@@ -451,7 +452,7 @@ export async function getCommitByOid(
 ): Promise<{ commit: CommitInfo; parent: string | null } | null> {
   try {
 
-    const { commit } = await git.readCommit({ fs, dir, oid });
+    const { commit } = await cachedGit.readCommit({ fs, dir, oid });
     return {
       commit: {
         oid,
@@ -490,7 +491,7 @@ async function compareTreesRecursive(
   const parentEntries: TreeEntry[] = [];
 
   try {
-    const currentTree = await git.readTree({ fs, dir, oid: currentTreeOid });
+    const currentTree = await cachedGit.readTree({ fs, dir, oid: currentTreeOid });
     for (const entry of currentTree.tree) {
       currentEntries.push(entry as TreeEntry);
     }
@@ -501,7 +502,7 @@ async function compareTreesRecursive(
 
   if (parentTreeOid) {
     try {
-      const parentTree = await git.readTree({ fs, dir, oid: parentTreeOid });
+      const parentTree = await cachedGit.readTree({ fs, dir, oid: parentTreeOid });
       for (const entry of parentTree.tree) {
         parentEntries.push(entry as TreeEntry);
       }
@@ -567,7 +568,7 @@ async function getBlobInflatedSizeEstimate(fs: S3Fs, dir: string, oid: string): 
     return stats.size * 8;
   } catch {
     try {
-      const { blob } = await git.readBlob({ fs, dir, oid });
+      const { blob } = await cachedGit.readBlob({ fs, dir, oid });
       return blob.length;
     } catch {
       return null;
@@ -585,7 +586,7 @@ async function readBlobTextLimited(
     return null;
   }
 
-  const { blob } = await git.readBlob({ fs, dir, oid });
+  const { blob } = await cachedGit.readBlob({ fs, dir, oid });
   if (blob.length > MAX_DIFF_FILE_BYTES) {
     return null;
   }
@@ -867,7 +868,7 @@ export async function getCommitDiff(
       return null;
     }
 
-    const { commit } = await git.readCommit({ fs, dir, oid });
+    const { commit } = await cachedGit.readCommit({ fs, dir, oid });
 
     const parentOid = commit.parent.length > 0 ? commit.parent[0] : null;
 
@@ -891,7 +892,7 @@ export async function getCommitDiff(
 
       if (parentOid && await objectExists(fs, parentOid)) {
         try {
-          const parentCommit = await git.readCommit({ fs, dir, oid: parentOid });
+          const parentCommit = await cachedGit.readCommit({ fs, dir, oid: parentOid });
           parentTree = parentCommit.commit.tree;
         } catch (error: any) {
           if (error.code === "NotFoundError" || error.message?.includes("Could not find")) {
@@ -1054,7 +1055,7 @@ async function getCommitOidsUpTo(
     oids.push(currentOid);
 
     try {
-      const { commit } = await git.readCommit({ fs, dir, oid: currentOid });
+      const { commit } = await cachedGit.readCommit({ fs, dir, oid: currentOid });
       currentOid = commit.parent.length > 0 ? commit.parent[0] : null;
     } catch {
       break;
@@ -1076,7 +1077,7 @@ async function findMergeBase(
   while (current) {
     ancestors1.add(current);
     try {
-      const { commit } = await git.readCommit({ fs, dir, oid: current });
+      const { commit } = await cachedGit.readCommit({ fs, dir, oid: current });
       current = commit.parent.length > 0 ? commit.parent[0] : null;
     } catch {
       break;
@@ -1090,7 +1091,7 @@ async function findMergeBase(
       return current;
     }
     try {
-      const { commit } = await git.readCommit({ fs, dir, oid: current });
+      const { commit } = await cachedGit.readCommit({ fs, dir, oid: current });
       current = commit.parent.length > 0 ? commit.parent[0] : null;
     } catch {
       break;
@@ -1158,7 +1159,7 @@ export async function compareBranches(
     const commits: CommitInfo[] = [];
     for (const oid of headCommitOids) {
       try {
-        const { commit } = await git.readCommit({ fs: headStore.fs, dir: headStore.dir, oid });
+        const { commit } = await cachedGit.readCommit({ fs: headStore.fs, dir: headStore.dir, oid });
         commits.push({
           oid,
           message: commit.message,
@@ -1217,7 +1218,7 @@ export async function compareBranches(
 
 async function getTreeOidForCommit(fs: S3Fs, dir: string, oid: string): Promise<string | null> {
   try {
-    const { commit } = await git.readCommit({ fs, dir, oid });
+    const { commit } = await cachedGit.readCommit({ fs, dir, oid });
     return commit.tree;
   } catch {
     return null;
@@ -1291,7 +1292,7 @@ async function copyTreeRecursive(
       return false;
     }
 
-    const tree = await git.readTree({ fs: sourceStore.fs, dir: sourceStore.dir, oid: treeOid });
+    const tree = await cachedGit.readTree({ fs: sourceStore.fs, dir: sourceStore.dir, oid: treeOid });
     
     for (const entry of tree.tree) {
       if (entry.type === "blob") {
@@ -1330,7 +1331,7 @@ async function copyCommitAndAncestors(
 
       await copyGitObject(sourceStore, targetStore, oid, "commit");
       
-      const { commit } = await git.readCommit({ fs: sourceStore.fs, dir: sourceStore.dir, oid });
+      const { commit } = await cachedGit.readCommit({ fs: sourceStore.fs, dir: sourceStore.dir, oid });
       
       await copyTreeRecursive(sourceStore, targetStore, commit.tree);
       
@@ -1393,7 +1394,7 @@ export async function performMerge(
       console.log("[Git] Successfully copied git objects for cross-repo merge");
     }
 
-    const { commit: headCommit } = await git.readCommit({ 
+    const { commit: headCommit } = await cachedGit.readCommit({
       fs: isCrossRepo ? baseStore.fs : headStore.fs, 
       dir: isCrossRepo ? baseStore.dir : headStore.dir, 
       oid: headOid 
@@ -1496,7 +1497,7 @@ export async function commitFile(
   try {
     const { fs, dir } = store;
     const headOid = await git.resolveRef({ fs, dir, ref: normalizeRef(branch) });
-    const { commit: headCommit } = await git.readCommit({ fs, dir, oid: headOid });
+    const { commit: headCommit } = await cachedGit.readCommit({ fs, dir, oid: headOid });
 
     // Traverse the existing tree, building a mutable map at each directory level
     const parts = filePath.split("/").filter(Boolean);
@@ -1509,7 +1510,7 @@ export async function commitFile(
     let currentTreeOid = headCommit.tree;
 
     for (const part of dirParts) {
-      const rawTree = await git.readTree({ fs, dir, oid: currentTreeOid });
+      const rawTree = await cachedGit.readTree({ fs, dir, oid: currentTreeOid });
       const treeMap: TreeMap = new Map(rawTree.tree.map((e) => [e.path, { mode: e.mode, type: e.type, oid: e.oid }]));
       treeMaps.push(treeMap);
       const entry = treeMap.get(part);
@@ -1524,7 +1525,7 @@ export async function commitFile(
     }
 
     // Write leaf tree (with or without the file)
-    const leafRawTree = await git.readTree({ fs, dir, oid: currentTreeOid }).catch(() => ({ tree: [] }));
+    const leafRawTree = await cachedGit.readTree({ fs, dir, oid: currentTreeOid }).catch(() => ({ tree: [] }));
     const leafMap: TreeMap = new Map(leafRawTree.tree.map((e) => [e.path, { mode: e.mode, type: e.type, oid: e.oid }]));
 
     if (deleteFile) {
@@ -1546,7 +1547,7 @@ export async function commitFile(
     for (let i = dirParts.length - 1; i >= 0; i--) {
       const parentMap = i === 0
         ? new Map<string, { mode: string; type: string; oid: string }>(
-            (await git.readTree({ fs, dir, oid: headCommit.tree }).catch(() => ({ tree: [] }))).tree.map((e) => [
+            (await cachedGit.readTree({ fs, dir, oid: headCommit.tree }).catch(() => ({ tree: [] }))).tree.map((e) => [
               e.path,
               { mode: e.mode, type: e.type, oid: e.oid },
             ])
@@ -1617,7 +1618,7 @@ export async function squashMerge(
       if (!copied) return null;
     }
 
-    const { commit: headCommit } = await git.readCommit({
+    const { commit: headCommit } = await cachedGit.readCommit({
       fs: isCrossRepo ? bFs : hFs,
       dir: isCrossRepo ? bDir : hDir,
       oid: headOid,
@@ -1670,7 +1671,7 @@ export async function rebaseMerge(
     }
 
     // Fast-forward rebase: move base branch tip to head's tip
-    const { commit: headCommit } = await git.readCommit({
+    const { commit: headCommit } = await cachedGit.readCommit({
       fs: isCrossRepo ? bFs : hFs,
       dir: isCrossRepo ? bDir : hDir,
       oid: headOid,
@@ -1719,7 +1720,7 @@ export async function listTags(fs: S3Fs, dir: string): Promise<TagInfo[]> {
     for (const name of tags) {
       try {
         const tagOid = await git.resolveRef({ fs, dir, ref: `refs/tags/${name}` });
-        const object = await git.readObject({ fs, dir, oid: tagOid });
+        const object = await cachedGit.readObject({ fs, dir, oid: tagOid });
         if (object.type === "tag") {
           const tag = object.object as any;
           result.push({

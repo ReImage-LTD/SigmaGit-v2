@@ -1,3 +1,4 @@
+import { cachedGit } from '../git/read-cache';
 import { collectFetchObjects } from '../lib/git-fetch-objects';
 import { createUploadPackStream } from '../lib/git-upload-pack';
 import { requestSignal } from '../lib/request-context';
@@ -287,7 +288,7 @@ app.post("/:owner/:name/git-upload-pack", async (c) => {
       maxTraversalObjects: 100_000,
       signal: requestSignal(c.req.raw.signal),
       read: async (oid) => {
-        const result = await git.readObject({ fs: store.fs, dir: store.dir, oid, format: "content" });
+        const result = await cachedGit.readObject({ fs: store.fs, dir: store.dir, oid, format: "content" });
         if (result.type !== "commit" && result.type !== "tree" && result.type !== "blob" && result.type !== "tag") {
           throw new Error("Unsupported Git object type");
         }
