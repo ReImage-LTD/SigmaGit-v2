@@ -104,7 +104,7 @@ function GistsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {gists.map((gist) => {
             const files = gist.files;
-            const firstFile = files[0];
+            const firstFile = files.at(0);
             const language = firstFile?.language || getLanguage(firstFile?.filename || "");
             const languageClass = languageColors[language.toLowerCase()] || languageColors.default;
             const owner = gist.owner;
