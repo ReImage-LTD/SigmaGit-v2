@@ -8,7 +8,7 @@ import {
 } from '../middleware/validate';
 import { requireAuth, invalidateCachedUser, type AuthVariables } from '../middleware/auth';
 import { putObject, deleteObject, deletePrefix, getRepoPrefix } from '../s3';
-import { db, users, repositories, accounts, sessions } from '@sigmagit/db';
+import { db, users, repositories, accounts, sessions, organizations } from '@sigmagit/db';
 import { verifyUserPassword } from '../security/password-verify';
 import { validateAvatarUpload } from '../security/avatar';
 import { isPasswordCompromised } from '../security/pwned';
@@ -75,7 +75,8 @@ app.patch('/api/settings/profile', requireAuth, async (c) => {
       where: and(eq(users.username, normalizedUsername), ne(users.id, user.id)),
     });
 
-    if (existing) {
+    const existingOrg = await db.query.organizations.findFirst({ where: eq(organizations.name, normalizedUsername), columns: { id: true } });
+    if (existing || existingOrg) {
       return c.json({ error: 'Username is already taken' }, 400);
     }
   }

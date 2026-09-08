@@ -18,19 +18,30 @@ const app = new Hono<{ Variables: AuthVariables }>();
 
 app.post("/api/organizations", requireAuth, async (c) => {
   const user = c.get("user")!;
-  const body = await c.req.json();
-  const { name, displayName, description, email, website, location } = body;
+  const parsed = z.object({
+    name: z.string().trim().toLowerCase().min(3).max(39).regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/),
+    displayName: z.string().max(100).optional(),
+    description: z.string().max(2000).optional(),
+    email: z.union([z.string().email(), z.literal('')]).optional(),
+    website: z.string().max(2000).optional(),
+    location: z.string().max(200).optional(),
+  }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json(formatZodError(parsed.error), 400);
+  const { name, displayName, description, email, website, location } = parsed.data;
+  const [existingUser] = await db.select({ id: users.id }).from(users).where(sql`lower(${users.username}) = ${name}`).limit(1);
+  if (existingUser) return c.json({ error: 'Organization name already taken' }, 409);
 
   const [existingOrg] = await db.select().from(organizations).where(eq(organizations.name, name.toLowerCase()));
   if (existingOrg) {
     return c.json({ error: "Organization name already taken" }, 400);
   }
 
-  const [org] = await db
+  const org = await db.transaction(async tx => {
+  const [org] = await tx
     .insert(organizations)
     .values({
       name: name.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
-      displayName,
+      displayName: displayName ?? name,
       description,
       email,
       website,
@@ -40,12 +51,19 @@ app.post("/api/organizations", requireAuth, async (c) => {
     })
     .returning();
 
-  await db.insert(organizationMembers).values({
+  await tx.insert(organizationMembers).values({
     organizationId: org.id,
     userId: user.id,
     role: "owner",
     createdAt: new Date(),
   });
+  return org;
+  }).catch((error: unknown) => {
+    const cause = error as { code?: string; cause?: { code?: string } };
+    if (cause.code === '23505' || cause.cause?.code === '23505') return null;
+    throw error;
+  });
+  if (!org) return c.json({ error: 'Organization name already taken' }, 409);
 
   await logAuditEvent(
     user.id,

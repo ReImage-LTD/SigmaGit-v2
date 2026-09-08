@@ -85,6 +85,13 @@
       "when": 1788742000000,
       "tag": "0011_background_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788900000000,
+      "tag": "0012_shared_namespaces",
+      "breakpoints": true
     }
   ]
 }

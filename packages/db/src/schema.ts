@@ -1989,3 +1989,10 @@ export const backgroundTasks = pgTable('background_tasks', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, table => [index('background_tasks_pending_idx').on(table.state, table.availableAt)]);
+
+// Shared user/organization namespace; maintained atomically by database triggers.
+export const namespaceReservations = pgTable('namespace_reservations', {
+  name: text('name').primaryKey(),
+  entityType: text('entity_type').notNull(),
+  entityId: text('entity_id').notNull(),
+});
