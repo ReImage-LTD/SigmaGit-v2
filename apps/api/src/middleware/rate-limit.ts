@@ -88,7 +88,11 @@ export function isExcludedPath(path: string): boolean {
 }
 
 export function isAuthenticated(c: RateLimitContext): boolean {
-  return Boolean(c.get('user'));
+  return Boolean(c.get('user') || getRegistryRateLimitUserId(c));
+}
+
+function getRegistryRateLimitUserId(c: RateLimitContext): string | undefined {
+  return c.req.path.startsWith('/v2/') ? c.get('registryRateLimitUserId') : undefined;
 }
 
 const clientIps = new WeakMap<object, string>();
@@ -145,8 +149,8 @@ export function getRateLimitKey(c: RateLimitContext, tier: RateLimitTier): strin
   if (tier === 'auth' || tier === 'unauth' || tier === 'ingress' || tier === 'public-write') {
     return getClientIp(c);
   }
-  const user = c.get('user');
-  return user ? `user:${user.id}` : getClientIp(c);
+  const userId = getRegistryRateLimitUserId(c) ?? c.get('user')?.id;
+  return userId ? `user:${userId}` : getClientIp(c);
 }
 
 // A route may use the same guard as the global middleware. Charge a bucket once.

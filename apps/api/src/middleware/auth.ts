@@ -15,6 +15,7 @@ export type AuthUser = {
 };
 
 export type AuthVariables = {
+  registryRateLimitUserId?: string;
   runner?: { id: string; name: string; status: string };
   user: AuthUser | null;
   session: Session | null;

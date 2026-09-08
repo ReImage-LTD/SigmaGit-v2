@@ -1,3 +1,4 @@
+import { registryRateLimitAuth } from './middleware/registry-rate-limit-auth';
 import { startDeliveryWorker } from './workers/deliveries';
 import { requireRunnerAuth } from './middleware/runner-auth';
 import { Hono } from "hono";
@@ -147,6 +148,7 @@ app.use("*", csrfMiddleware);
 app.use("*", gitLimitsMiddleware);
 app.use("/api/runners/:runnerId/heartbeat", requireRunnerAuth);
 app.use("/api/runners/:runnerId/jobs/:jobId/*", requireRunnerAuth);
+app.use("/v2/*", registryRateLimitAuth);
 app.use("*", rateLimitMiddleware);
 app.use("*", compressionMiddleware);
 app.use("*", responseSizeMiddleware);

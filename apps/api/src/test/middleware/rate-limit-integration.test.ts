@@ -1,3 +1,5 @@
+import { registryRateLimitAuth } from '../../middleware/registry-rate-limit-auth';
+import { issueRegistryToken } from '../../registry/token';
 import {
   enforceAuthRateLimit,
   getClientIp,
@@ -153,5 +155,27 @@ describe('socket and proxy identity', () => {
       expect(response.headers.has('retry-after')).toBe(true);
     }
     expect(checks).toBe(quota);
+  });
+});
+
+describe('registry quota identity', () => {
+  it('uses verified user quotas for uploads while rejecting forged identities', async () => {
+    const app = new Hono<{ Variables: AuthVariables }>();
+    app.use('*', registryRateLimitAuth);
+    app.use('*', rateLimitMiddleware);
+    app.all('*', c => c.json({ tier: resolveRateLimitTier(c), user: c.get('user') ?? null }));
+    const env = fixedTransport();
+    const token = issueRegistryToken({ sub: 'registry-test-user', username: 'alice', repo: 'alice/image', access: ['push'] });
+    const request = (credential: string, path = '/v2/alice/image/blobs/uploads/id') => app.fetch(new Request('http://localhost' + path, { method: 'PATCH', headers: { Authorization: 'Bearer ' + credential } }), env);
+    const publicQuota = config.isProduction ? Math.max(1, Math.floor(config.rateLimit.publicWrite / 4)) : config.rateLimit.publicWrite;
+    for (let i = 0; i <= publicQuota; i++) {
+      const response = await request(token);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ tier: 'write', user: null });
+    }
+    const forged = await request(token + 'invalid');
+    expect(await forged.json()).toEqual({ tier: 'public-write', user: null });
+    const otherApi = await request(token, '/api/repositories');
+    expect(await otherApi.json()).toEqual({ tier: 'public-write', user: null });
   });
 });
