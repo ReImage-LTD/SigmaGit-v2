@@ -169,7 +169,8 @@ function RepositoriesTab({ username }: { username: string }) {
 }
 
 function PackagesTab({ username, enabled = true }: { username: string; enabled?: boolean }) {
-  const { data, isLoading } = useUserPackages(username, { enabled });
+  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage, isFetchNextPageError } =
+    useUserPackages(username, { enabled });
 
   if (isLoading) {
     return <TabSkeleton />;
@@ -205,6 +206,15 @@ function PackagesTab({ username, enabled = true }: { username: string; enabled?:
           </code>
         </div>
       ))}
+      {hasNextPage && (
+        <Button
+          variant="outline"
+          disabled={isFetchingNextPage}
+          onClick={() => void fetchNextPage()}
+        >
+          {isFetchingNextPage ? 'Loading...' : isFetchNextPageError ? 'Retry loading packages' : 'Load more'}
+        </Button>
+      )}
     </div>
   );
 }

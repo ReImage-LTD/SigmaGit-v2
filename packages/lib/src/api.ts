@@ -347,8 +347,10 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     },
 
     packages: {
-      listForUser: (username: string) =>
-        apiFetch<{ packages: Package[] }>(`/api/users/${encodeURIComponent(username)}/packages`),
+      listForUser: (username: string, after?: string) =>
+        apiFetch<{ packages: Package[]; nextCursor: string | null }>(
+          `/api/users/${encodeURIComponent(username)}/packages?limit=20${after ? '&after=' + encodeURIComponent(after) : ''}`
+        ),
       getTags: (username: string, image: string) =>
         apiFetch<{ name: string; tags: string[] }>(
           `/api/users/${encodeURIComponent(username)}/packages/${encodeURIComponent(image)}/tags`

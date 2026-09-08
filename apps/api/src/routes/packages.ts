@@ -1,36 +1,18 @@
 import { Hono } from "hono";
 import { db, users, organizations, organizationMembers } from "@sigmagit/db";
 import { eq, and } from "drizzle-orm";
-import { authMiddleware, requireAuth, type AuthVariables } from "../middleware/auth";
-import { listObjects } from "../storage";
+import { requireAuth, type AuthVariables } from "../middleware/auth";
+import { listDirectory } from "../storage";
+import { listPackagePage } from "../registry/package-list";
+import { isValidOciImageName } from "../registry/oci";
+import { parseLimit } from "../lib/validation";
+import { requestSignal } from "../lib/request-context";
 import { listManifestRefs } from "../registry/storage";
 
 const app = new Hono<{ Variables: AuthVariables }>();
-const REGISTRY_PREFIX = "registry/";
-
-
-/** Extract unique image names from registry keys under registry/owner/ */
-async function getImageNamesForOwner(owner: string): Promise<string[]> {
-  const prefix = `${REGISTRY_PREFIX}${owner}/`;
-  const keys = await listObjects(prefix);
-  const imageNames = new Set<string>();
-  for (const key of keys) {
-    if (!key.startsWith(prefix)) continue;
-    const after = key.slice(prefix.length);
-    const manifestIdx = after.indexOf("/manifests/");
-    const blobIdx = after.indexOf("/blobs/");
-    const end = manifestIdx >= 0 ? manifestIdx : blobIdx >= 0 ? blobIdx : -1;
-    if (end >= 0) {
-      imageNames.add(after.slice(0, end));
-    }
-  }
-  return Array.from(imageNames);
-}
-
 /** Resolve username to owner (user or org). Returns owner type and whether current user can list. */
 async function canListPackagesFor(
   currentUserId: string,
-  currentUsername: string,
   ownerParam: string
 ): Promise<{ allowed: boolean; owner: string }> {
   const ownerLower = ownerParam.toLowerCase();
@@ -66,21 +48,20 @@ async function canListPackagesFor(
 app.get("/api/users/:username/packages", requireAuth, async (c) => {
   const username = c.req.param("username");
   const user = c.get("user")!;
-  const { allowed, owner } = await canListPackagesFor(user.id, user.username, username);
+  const { allowed, owner } = await canListPackagesFor(user.id, username);
   if (!allowed) {
     return c.json({ error: "Forbidden" }, 403);
   }
-  const imageNames = await getImageNamesForOwner(owner);
-  const packages: { name: string; owner: string; tags: string[] }[] = [];
-  for (const imageName of imageNames) {
-    try {
-      const tags = await listManifestRefs(owner, imageName);
-      packages.push({ name: imageName, owner, tags });
-    } catch {
-      packages.push({ name: imageName, owner, tags: [] });
-    }
-  }
-  return c.json({ packages });
+  const after = c.req.query("after");
+  if (after && !isValidOciImageName(after)) return c.json({ error: "Invalid package cursor" }, 400);
+  return c.json(await listPackagePage({
+    owner,
+    limit: parseLimit(c.req.query("limit"), 20, 50),
+    after,
+    listDirectory,
+    listRefs: listManifestRefs,
+    signal: requestSignal(c.req.raw.signal),
+  }));
 });
 
 // GET /api/users/:username/packages/:image/tags — :image may be URL-encoded (e.g. myorg%2Fnginx)
@@ -88,7 +69,7 @@ app.get("/api/users/:username/packages/:image/tags", requireAuth, async (c) => {
   const username = c.req.param("username");
   const image = decodeURIComponent(c.req.param("image"));
   const user = c.get("user")!;
-  const { allowed, owner } = await canListPackagesFor(user.id, user.username, username);
+  const { allowed, owner } = await canListPackagesFor(user.id, username);
   if (!allowed) {
     return c.json({ error: "Forbidden" }, 403);
   }
@@ -104,21 +85,20 @@ app.get("/api/users/:username/packages/:image/tags", requireAuth, async (c) => {
 app.get("/api/organizations/:org/packages", requireAuth, async (c) => {
   const org = c.req.param("org");
   const user = c.get("user")!;
-  const { allowed, owner } = await canListPackagesFor(user.id, user.username, org);
+  const { allowed, owner } = await canListPackagesFor(user.id, org);
   if (!allowed) {
     return c.json({ error: "Forbidden" }, 403);
   }
-  const imageNames = await getImageNamesForOwner(owner);
-  const packages: { name: string; owner: string; tags: string[] }[] = [];
-  for (const imageName of imageNames) {
-    try {
-      const tags = await listManifestRefs(owner, imageName);
-      packages.push({ name: imageName, owner, tags });
-    } catch {
-      packages.push({ name: imageName, owner, tags: [] });
-    }
-  }
-  return c.json({ packages });
+  const after = c.req.query("after");
+  if (after && !isValidOciImageName(after)) return c.json({ error: "Invalid package cursor" }, 400);
+  return c.json(await listPackagePage({
+    owner,
+    limit: parseLimit(c.req.query("limit"), 20, 50),
+    after,
+    listDirectory,
+    listRefs: listManifestRefs,
+    signal: requestSignal(c.req.raw.signal),
+  }));
 });
 
 export default app;

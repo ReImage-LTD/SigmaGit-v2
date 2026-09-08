@@ -670,7 +670,7 @@ export type ApiClient = {
     getPublic: (sortBy: "newest" | "oldest", limit: number, offset: number) => Promise<{ users: PublicUser[]; hasMore: boolean }>;
   };
   packages: {
-    listForUser: (username: string) => Promise<{ packages: Package[] }>;
+    listForUser: (username: string, after?: string) => Promise<{ packages: Package[]; nextCursor: string | null }>;
     getTags: (username: string, image: string) => Promise<{ name: string; tags: string[] }>;
   };
   settings: {
