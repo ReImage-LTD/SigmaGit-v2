@@ -1,3 +1,4 @@
+import { collectFetchObjects } from '../lib/git-fetch-objects';
 import { createUploadPackStream } from '../lib/git-upload-pack';
 import { requestSignal } from '../lib/request-context';
 import { canRunnerReadRepository } from '../lib/runner-git-access';
@@ -279,17 +280,20 @@ app.post("/:owner/:name/git-upload-pack", async (c) => {
       });
     }
 
-    const haveReachable =
-      uploadRequest.haves.length > 0
-        ? await collectReachableOids(store.fs, store.dir, uploadRequest.haves)
-        : new Set<string>();
-
-    const objects = collectReachableObjects(
-      store.fs,
-      store.dir,
-      uploadRequest.wants,
-      haveReachable
-    );
+    const objects = collectFetchObjects({
+      wants: uploadRequest.wants,
+      haves: uploadRequest.haves,
+      maxObjectBytes: GIT_MAX_OBJECT_BYTES,
+      maxTraversalObjects: 100_000,
+      signal: requestSignal(c.req.raw.signal),
+      read: async (oid) => {
+        const result = await git.readObject({ fs: store.fs, dir: store.dir, oid, format: "content" });
+        if (result.type !== "commit" && result.type !== "tree" && result.type !== "blob" && result.type !== "tag") {
+          throw new Error("Unsupported Git object type");
+        }
+        return { type: result.type, data: toObjectBuffer(result.object) };
+      },
+    });
     const response = await createUploadPackStream(objects, {
       maxObjects: GIT_MAX_UPLOAD_PACK_OBJECTS,
       maxBytes: GIT_MAX_UPLOAD_PACK_BYTES,
@@ -364,11 +368,6 @@ interface UploadPackRequest {
   capabilities: Set<string>;
 }
 
-interface UploadObject {
-  oid: string;
-  type: "commit" | "tree" | "blob" | "tag";
-  data: Buffer;
-}
 
 function readPackVarInt(buf: Buffer, offset: number): { value: number; type: number; bytesRead: number } {
   if (offset >= buf.length) throw new Error('Truncated pack header');
@@ -502,127 +501,6 @@ function toObjectBuffer(object: unknown): Buffer {
     return Buffer.from(object, "utf8");
   }
   return Buffer.from([]);
-}
-
-async function collectReachableOids(fs: any, dir: string, startOids: string[]): Promise<Set<string>> {
-  const visited = new Set<string>();
-  const stack = startOids.filter((oid) => /^[0-9a-f]{40}$/i.test(oid));
-
-  const enqueue = (oid: string | undefined) => {
-    if (!oid || !/^[0-9a-f]{40}$/i.test(oid) || visited.has(oid)) {
-      return;
-    }
-    stack.push(oid);
-  };
-
-  while (stack.length > 0) {
-    const oid = stack.pop()!;
-    if (visited.has(oid)) {
-      continue;
-    }
-    visited.add(oid);
-
-    try {
-      const { type } = await git.readObject({ fs, dir, oid, format: "content" });
-      if (type === "commit") {
-        const { commit } = await git.readCommit({ fs, dir, oid });
-        enqueue(commit.tree);
-        for (const parent of commit.parent) {
-          enqueue(parent);
-        }
-      } else if (type === "tree") {
-        const { tree } = await git.readTree({ fs, dir, oid });
-        for (const entry of tree) {
-          if (entry.type === "tree" || entry.type === "commit") {
-            enqueue(entry.oid);
-          } else {
-            visited.add(entry.oid);
-          }
-        }
-      } else if (type === "tag") {
-        const { tag } = await git.readTag({ fs, dir, oid });
-        enqueue(tag.object);
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return visited;
-}
-
-async function* collectReachableObjects(
-  fs: any,
-  dir: string,
-  startOids: string[],
-  excludeOids: Set<string> = new Set()
-): AsyncGenerator<UploadObject> {
-  const queued = new Set<string>(startOids);
-  const stack = [...startOids];
-  const visited = new Set<string>();
-
-
-  const enqueue = (oid: string | undefined) => {
-    if (!oid || !/^[0-9a-f]{40}$/i.test(oid)) {
-      return;
-    }
-    if (visited.has(oid) || queued.has(oid) || excludeOids.has(oid)) {
-      return;
-    }
-    queued.add(oid);
-    stack.push(oid);
-  };
-
-  while (stack.length > 0) {
-    requestSignal()?.throwIfAborted();
-
-    const oid = stack.pop()!;
-    queued.delete(oid);
-
-    if (visited.has(oid) || excludeOids.has(oid)) {
-      continue;
-    }
-    visited.add(oid);
-
-    let objectType: "commit" | "tree" | "blob" | "tag";
-    let objectData: Buffer;
-
-    try {
-      const read = await git.readObject({ fs, dir, oid, format: "content" });
-      if (read.type !== "commit" && read.type !== "tree" && read.type !== "blob" && read.type !== "tag") {
-        continue;
-      }
-      objectType = read.type;
-      objectData = toObjectBuffer(read.object);
-      if (objectData.length > GIT_MAX_OBJECT_BYTES) {
-        throw new Error(`Upload pack object ${oid} exceeds size limit`);
-      }
-    } catch (error) {
-      throw new Error(`Unable to read upload pack object ${oid}`, { cause: error });
-    }
-    yield { oid, type: objectType, data: objectData };
-
-    try {
-      if (objectType === "commit") {
-        const { commit } = await git.readCommit({ fs, dir, oid });
-        enqueue(commit.tree);
-        for (const parent of commit.parent) {
-          enqueue(parent);
-        }
-      } else if (objectType === "tree") {
-        const { tree } = await git.readTree({ fs, dir, oid });
-        for (const entry of tree) {
-          enqueue(entry.oid);
-        }
-      } else if (objectType === "tag") {
-        const { tag } = await git.readTag({ fs, dir, oid });
-        enqueue(tag.object);
-      }
-    } catch {
-      continue;
-    }
-  }
-
 }
 
 function typeToString(type: number): string {
