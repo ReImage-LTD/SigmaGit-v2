@@ -103,7 +103,7 @@ export function evaluateRepoAccessFromFacts(
 ): boolean {
   if (user?.role === 'admin' && user?.id) {
     if (!writeRequired) return true;
-    if (user.id === repo.ownerId) return true;
+    if (!repo.organizationId && user.id === repo.ownerId) return true;
     return (
       facts?.collaboratorPermission != null &&
       hasWritePermission(facts.collaboratorPermission)
@@ -112,7 +112,7 @@ export function evaluateRepoAccessFromFacts(
 
   if (repo.visibility === 'public' && !writeRequired) return true;
   if (!user?.id) return false;
-  if (user.id === repo.ownerId) return true;
+  if (!repo.organizationId && user.id === repo.ownerId) return true;
   if (!facts) return false;
 
   if (repo.organizationId) {
@@ -173,7 +173,7 @@ export async function canAccessRepository(
   if (user?.role === 'admin' && user?.id) {
     // For write operations, admins still need to be owner or write/admin collaborator
     if (!writeRequired) return true;
-    if (user.id === repo.ownerId) return true;
+    if (!repo.organizationId && user.id === repo.ownerId) return true;
     const { collaboratorPermission } = await getRepoAccessFacts(repo, user.id);
     return collaboratorPermission != null && hasWritePermission(collaboratorPermission);
   }
@@ -185,7 +185,7 @@ export async function canAccessRepository(
   if (!user?.id) return false;
 
   // Owner always has access
-  if (user.id === repo.ownerId) return true;
+  if (!repo.organizationId && user.id === repo.ownerId) return true;
 
   const facts = await getRepoAccessFacts(repo, user.id);
 
@@ -224,7 +224,7 @@ export async function filterAccessibleRepos<T extends Repository>(
   const userId = user.id;
 
   for (const repo of repos) {
-    if (repo.ownerId === userId) {
+    if (!repo.organizationId && repo.ownerId === userId) {
       accessibleIds.add(repo.id);
     }
   }
@@ -315,7 +315,7 @@ export async function canManageRepository(
   repo: Repository,
   user: { id: string }
 ): Promise<boolean> {
-  if (user.id === repo.ownerId) return true;
+  if (!repo.organizationId && user.id === repo.ownerId) return true;
 
   const facts = await getRepoAccessFacts(repo, user.id);
 

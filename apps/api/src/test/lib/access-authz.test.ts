@@ -202,3 +202,13 @@ describe('authorizeRepositoryAccess', () => {
     if (!r.ok) expect(r.status).toBe(404);
   });
 });
+
+ describe('organization repository creators', () => {
+  for (const write of [false, true]) {
+    it('denies a removed creator access (write=' + write + ')', () => {
+      expect(evaluateRepoAccessFromFacts(orgPrivate, { id: 'owner' }, emptyFacts, write)).toBe(false);
+      expect(evaluateRepoAccessFromFacts(orgPrivate, { id: 'owner' }, { ...emptyFacts, orgRole: 'owner' }, write)).toBe(true);
+      expect(evaluateRepoAccessFromFacts(privateRepo, { id: 'owner' }, emptyFacts, write)).toBe(true);
+    });
+  }
+});

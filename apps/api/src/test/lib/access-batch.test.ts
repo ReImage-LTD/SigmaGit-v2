@@ -20,7 +20,7 @@ describe('consistent repository permissions', () => {
     const select = spyOn(db, 'select');
     const repos = [
       { ...repo, id: 'public', visibility: 'public' },
-      { ...repo, id: 'owned', ownerId: 'user' },
+      { ...repo, id: 'owned', ownerId: 'user', organizationId: null },
     ];
     expect(await filterAccessibleRepos(repos, { id: 'user' })).toEqual(repos);
     expect(select).not.toHaveBeenCalled();

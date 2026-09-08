@@ -61,7 +61,7 @@ app.post("/api/repositories/:owner/:name/collaborators", requireAuth, async (c) 
   });
 
   if (!targetUser) return c.json({ error: "User not found" }, 404);
-  if (targetUser.id === repo.ownerId) return c.json({ error: "Owner cannot be added as collaborator" }, 400);
+  if (!repo.organizationId && targetUser.id === repo.ownerId) return c.json({ error: "Owner cannot be added as collaborator" }, 400);
 
   const permission = body.permission ?? "read";
 

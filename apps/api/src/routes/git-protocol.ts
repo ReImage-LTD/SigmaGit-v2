@@ -1,3 +1,4 @@
+import { canAccessRepository, type Repository } from '../lib/access';
 import { enforceAuthRateLimit } from '../middleware/rate-limit';
 import type { Context } from 'hono';
 import { cachedGit } from '../git/read-cache';
@@ -148,41 +149,12 @@ async function resolveGitUser(c: Context<{ Variables: AuthVariables }>): Promise
   return await resolveBasicAuthUser(c.req.header("authorization"), () => enforceAuthRateLimit(c));
 }
 
-async function canReadRepository(repo: { id: string; ownerId: string; organizationId?: string | null; visibility: string }, currentUser: AuthUser | null): Promise<boolean> {
-  // Admins always have read access (but need valid id)
-  if (currentUser?.role === "admin" && currentUser?.id) {
-    return true;
-  }
-  if (repo.visibility === "public") {
-    return true;
-  }
-  if (!currentUser?.id) {
-    return false;
-  }
-  if (currentUser.id === repo.ownerId) {
-    return true;
-  }
-
-  const collaborator = await db.query.repositoryCollaborators.findFirst({
-    where: and(eq(repositoryCollaborators.repositoryId, repo.id), eq(repositoryCollaborators.userId, currentUser.id)),
-  });
-  return Boolean(collaborator);
+async function canReadRepository(repo: Repository, user: AuthUser | null): Promise<boolean> {
+  return canAccessRepository(repo, user);
 }
 
-async function canWriteRepository(repo: { id: string; ownerId: string }, currentUser: AuthUser | null): Promise<boolean> {
-  if (!currentUser?.id) {
-    return false;
-  }
-  // Admins need explicit collaborator write access (not bypassed)
-  if (currentUser.id === repo.ownerId) {
-    return true;
-  }
-
-  const collaborator = await db.query.repositoryCollaborators.findFirst({
-    where: and(eq(repositoryCollaborators.repositoryId, repo.id), eq(repositoryCollaborators.userId, currentUser.id)),
-  });
-
-  return collaborator?.permission === "write" || collaborator?.permission === "admin";
+async function canWriteRepository(repo: Repository, user: AuthUser | null): Promise<boolean> {
+  return canAccessRepository(repo, user, true);
 }
 
 function unauthorizedBasic(): Response {

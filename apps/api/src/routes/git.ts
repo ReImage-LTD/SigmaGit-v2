@@ -4,7 +4,7 @@ import { db, users, repositories, stars, repoBranchMetadata } from "@sigmagit/db
 import { eq, sql, and } from "drizzle-orm";
 import { requireAuth, type AuthVariables } from "../middleware/auth";
 import { parseLimit, parseOffset, sanitizePathForGit } from "../lib/validation";
-import { canAccessRepository } from "../lib/access";
+import { canAccessRepository, canManageRepository } from "../lib/access";
 import { resolveRepositoryBySlug, createRepoGitStore } from "../lib/repo-helpers";
 import { deliverWebhookEvent } from "./repo-webhooks";
 import { repoCache } from '../redis';
@@ -759,7 +759,7 @@ app.get("/api/repositories/:owner/:name/page-data", async (c) => {
     return c.json({ error: "Repository not found" }, 404);
   }
 
-  return c.json({ isOwner: currentUser?.id === repo.ownerId });
+  return c.json({ isOwner: currentUser ? await canManageRepository(repo, currentUser) : false });
 });
 
 export default app;

@@ -8,7 +8,7 @@ import git from "isomorphic-git";
 import { requireAuth, type AuthVariables } from "../middleware/auth";
 import { writeRateLimit } from "../middleware/rate-limit";
 import { parseLimit, parseOffset } from "../lib/validation";
-import { canAccessRepository } from "../lib/access";
+import { canAccessRepository, canManageRepository } from "../lib/access";
 import { resolveRepositoryBySlug, getStorageOwnerId, invalidateRepositorySlugCache } from "../lib/repo-helpers";
 import { putObject, deletePrefix, getRepoPrefix, copyPrefix } from "../s3";
 import { repoCache } from "../redis";
@@ -918,7 +918,7 @@ app.delete("/api/repositories/:id", requireAuth, repositoryMutationLock, async (
     return c.json({ error: "Repository not found" }, 404);
   }
 
-  if (repo.ownerId !== user.id) {
+  if (!(await canManageRepository(repo, user))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
@@ -972,7 +972,7 @@ app.patch("/api/repositories/:id", requireAuth, repositoryMutationLock, async (c
     return c.json({ error: "Repository not found" }, 404);
   }
 
-  if (repo.ownerId !== user.id) {
+  if (!(await canManageRepository(repo, user))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
