@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db, users, organizations, organizationMembers } from "@sigmagit/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, type AuthVariables } from "../middleware/auth";
-import { listDirectory } from "../storage";
+import { listDirectoryPage, prefixExists } from "../storage";
 import { listPackagePage } from "../registry/package-list";
 import { isValidOciImageName } from "../registry/oci";
 import { parseLimit } from "../lib/validation";
@@ -58,7 +58,8 @@ app.get("/api/users/:username/packages", requireAuth, async (c) => {
     owner,
     limit: parseLimit(c.req.query("limit"), 20, 50),
     after,
-    listDirectory,
+    listDirectoryPage,
+    hasPrefix: prefixExists,
     listRefs: listManifestRefs,
     signal: requestSignal(c.req.raw.signal),
   }));
@@ -95,7 +96,8 @@ app.get("/api/organizations/:org/packages", requireAuth, async (c) => {
     owner,
     limit: parseLimit(c.req.query("limit"), 20, 50),
     after,
-    listDirectory,
+    listDirectoryPage,
+    hasPrefix: prefixExists,
     listRefs: listManifestRefs,
     signal: requestSignal(c.req.raw.signal),
   }));

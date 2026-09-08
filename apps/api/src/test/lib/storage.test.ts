@@ -4,6 +4,25 @@ import { S3StorageBackend, directoryPrefix } from '../../storage';
 
 afterEach(() => mock.restore());
 
+test('directory pages issue one bounded S3 request and preserve continuation', async () => {
+  const inputs: Array<Record<string, unknown>> = [];
+  spyOn(S3Client.prototype, 'send').mockImplementation((async (command: { input: Record<string, unknown> }) => {
+    inputs.push(command.input);
+    return command.input.ContinuationToken
+      ? { CommonPrefixes: [{ Prefix: 'registry/alice/app/' }] }
+      : { CommonPrefixes: [{ Prefix: 'registry/alice/app-z/' }], NextContinuationToken: 'next-page' };
+  }) as unknown as S3Client['send']);
+  const storage = backend();
+  expect(await storage.listDirectoryPage('registry/alice', { limit: 1 })).toEqual({ entries: ['app-z'], nextCursor: 'next-page' });
+  expect(inputs).toHaveLength(1);
+  expect(await storage.listDirectoryPage('registry/alice', { limit: 1, cursor: 'next-page' })).toEqual({ entries: ['app'], nextCursor: null });
+  await storage.listDirectoryPage('registry/alice', { limit: 5, startAfter: 'app-z' });
+  expect(inputs[0].MaxKeys).toBe(1);
+  expect(inputs[0].Delimiter).toBe('/');
+  expect(inputs[1].ContinuationToken).toBe('next-page');
+  expect(inputs[2].StartAfter).toBe('registry/alice/app-z/');
+});
+
 test('verified copy forwards the ETag from the exact downloaded object', async () => {
   const commands: Array<{ constructor: { name: string }; input: Record<string, unknown> }> = [];
   spyOn(S3Client.prototype, 'send').mockImplementation((async (command: typeof commands[number]) => {

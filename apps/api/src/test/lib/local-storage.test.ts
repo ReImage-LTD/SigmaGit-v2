@@ -11,6 +11,11 @@ test('local storage preserves directory isolation, copy mapping and native strea
     await storage.put('repos/u/repo/HEAD', 'main');
     await storage.put('repos/u/repo/objects/ab', 'object');
     await storage.put('repos/u/repo-backup/HEAD', 'backup');
+    await storage.put('list/app/file', 'x');
+    await storage.put('list/app-z/file', 'x');
+    expect(await storage.listDirectoryPage('list', { limit: 1 })).toEqual({ entries: ['app-z'], nextCursor: 'app-z' });
+    expect(await storage.listDirectoryPage('list', { limit: 1, cursor: 'app-z' })).toEqual({ entries: ['app'], nextCursor: null });
+    expect(await storage.listDirectoryPage('list', { limit: 1, startAfter: 'app' })).toEqual({ entries: [], nextCursor: null });
     expect(await storage.listDirectory('repos/u/repo')).toEqual(['HEAD', 'objects']);
     expect(await storage.getSize('repos/u/repo')).toBeNull();
     expect(await storage.getSize('repos/u/repo/HEAD')).toBe(4);

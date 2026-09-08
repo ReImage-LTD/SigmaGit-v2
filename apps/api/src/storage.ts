@@ -85,6 +85,17 @@ export interface StoredObject {
   etag?: string;
 }
 
+export interface DirectoryPageOptions {
+  limit: number;
+  cursor?: string;
+  startAfter?: string;
+}
+
+export interface DirectoryPage {
+  entries: string[];
+  nextCursor: string | null;
+}
+
 export interface StorageBackend {
   type: StorageType;
   get(key: string): Promise<Buffer | null>;
@@ -96,6 +107,7 @@ export interface StorageBackend {
   getSize(key: string): Promise<number | null>;
   list(prefix: string): Promise<string[]>;
   listDirectory(prefix: string): Promise<string[]>;
+  listDirectoryPage(prefix: string, options: DirectoryPageOptions): Promise<DirectoryPage>;
   hasPrefix(prefix: string): Promise<boolean>;
   deletePrefix(prefix: string): Promise<void>;
   copyPrefix(sourcePrefix: string, targetPrefix: string): Promise<void>;
@@ -294,6 +306,26 @@ export class S3StorageBackend implements StorageBackend {
     return [...entries].sort();
   }
 
+  async listDirectoryPage(prefix: string, options: DirectoryPageOptions): Promise<DirectoryPage> {
+    if (!this.client) throw new Error('S3 is not configured');
+    prefix = directoryPrefix(prefix);
+    const result = await this.client.send(new ListObjectsV2Command({
+      Bucket: this.bucket, Prefix: prefix, Delimiter: '/',
+      MaxKeys: Math.max(1, Math.min(1000, options.limit)),
+      ContinuationToken: options.cursor,
+      StartAfter: !options.cursor && options.startAfter ? prefix + options.startAfter + '/' : undefined,
+    }), { abortSignal: requestSignal() });
+    const entries = new Set<string>();
+    for (const key of [
+      ...(result.Contents ?? []).map(entry => entry.Key),
+      ...(result.CommonPrefixes ?? []).map(entry => entry.Prefix),
+    ]) {
+      const name = key?.slice(prefix.length).replace(/\/$/, '');
+      if (name) entries.add(name);
+    }
+    return { entries: [...entries].sort((a, b) => a + '/' < b + '/' ? -1 : a === b ? 0 : 1), nextCursor: result.NextContinuationToken ?? null };
+  }
+
   async deletePrefix(prefix: string): Promise<void> {
     prefix = directoryPrefix(prefix);
     if (!this.client) throw new Error('S3 is not configured');
@@ -441,6 +473,15 @@ export class LocalStorageBackend implements StorageBackend {
   async getWithMetadata(key: string): Promise<StoredObject | null> {
     const data = await this.get(key);
     return data ? { data, etag: createHash('sha256').update(data).digest('hex') } : null;
+  }
+
+  async listDirectoryPage(prefix: string, options: DirectoryPageOptions): Promise<DirectoryPage> {
+    const after = options.cursor ?? options.startAfter;
+    const names = (await this.listDirectory(prefix))
+      .filter(name => !after || name + '/' > after + '/')
+      .sort((a, b) => a + '/' < b + '/' ? -1 : a === b ? 0 : 1);
+    const entries = names.slice(0, Math.max(1, Math.min(1000, options.limit)));
+    return { entries, nextCursor: names.length > entries.length ? entries[entries.length - 1] : null };
   }
 
   async copyObject(key: string, targetKey: string, _size: number, etag?: string): Promise<void> {
@@ -766,4 +807,6 @@ export const getObjectStream = async (key: string, signal?: AbortSignal): Promis
 };
 
 export const listDirectory = (prefix: string): Promise<string[]> => getStorageBackend().listDirectory(prefix);
+export const listDirectoryPage = (prefix: string, options: DirectoryPageOptions): Promise<DirectoryPage> =>
+  getStorageBackend().listDirectoryPage(prefix, options);
 export const prefixExists = (prefix: string): Promise<boolean> => getStorageBackend().hasPrefix(prefix);

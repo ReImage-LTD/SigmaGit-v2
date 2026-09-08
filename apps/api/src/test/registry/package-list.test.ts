@@ -1,4 +1,5 @@
 import { listPackagePage } from '../../registry/package-list';
+import type { DirectoryPageOptions } from '../../storage';
 import { describe, expect, test } from 'bun:test';
 
 describe('package listing', () => {
@@ -15,10 +16,18 @@ describe('package listing', () => {
     const options = {
       owner: 'alice',
       limit: 1,
-      listDirectory: async (prefix: string) => {
+      hasPrefix: async (prefix: string) =>
+        directories[prefix.slice(0, prefix.lastIndexOf('/'))]?.includes(
+          prefix.slice(prefix.lastIndexOf('/') + 1),
+        ) ?? false,
+      listDirectoryPage: async (prefix: string, page: DirectoryPageOptions) => {
         reads.push(prefix);
         if (!(prefix in directories)) throw new Error(`Unexpected storage scan: ${prefix}`);
-        return [...directories[prefix]];
+        const after = page.cursor ?? page.startAfter;
+        const names = [...directories[prefix]]
+          .sort((a, b) => (a + '/' < b + '/' ? -1 : 1))
+          .filter((name) => !after || name + '/' > after + '/');
+        return { entries: names.slice(0, 1), nextCursor: names.length > 1 ? names[0] : null };
       },
       listRefs: async (_owner: string, image: string) => {
         tagged.push(image);
@@ -26,13 +35,13 @@ describe('package listing', () => {
       },
     };
     const first = await listPackagePage(options);
-    expect(first.packages.map((item) => item.name)).toEqual(['app']);
-    expect(first.nextCursor).toBe('app');
-    expect(tagged).toEqual(['app']);
+    expect(first.packages.map((item) => item.name)).toEqual(['app-z']);
+    expect(first.nextCursor).toBe('app-z');
+    expect(tagged).toEqual(['app-z']);
     const second = await listPackagePage({ ...options, after: first.nextCursor! });
-    expect(second.packages.map((item) => item.name)).toEqual(['app/nested']);
+    expect(second.packages.map((item) => item.name)).toEqual(['app']);
     const third = await listPackagePage({ ...options, after: second.nextCursor! });
-    expect(third.packages.map((item) => item.name)).toEqual(['app-z']);
+    expect(third.packages.map((item) => item.name)).toEqual(['app/nested']);
     expect(third.nextCursor).toBeNull();
     expect(reads.every((prefix) => !/\/(blobs|blob-chunks|manifests)$/.test(prefix))).toBe(true);
   });
@@ -44,10 +53,20 @@ describe('package listing', () => {
     const result = await listPackagePage({
       owner: 'alice',
       limit: 5,
-      listDirectory: async (prefix) =>
-        prefix === 'registry/alice/'
-          ? Array.from({ length: 50 }, (_, i) => `image-${String(i).padStart(2, '0')}`)
-          : ['manifests'],
+      hasPrefix: async () => true,
+      listDirectoryPage: async (prefix, options) => {
+        if (options.cursor) throw new Error('Unnecessary second storage page');
+        return {
+          entries:
+            prefix === 'registry/alice/'
+              ? Array.from(
+                  { length: options.limit },
+                  (_, i) => `image-${String(i).padStart(2, '0')}`,
+                )
+              : ['manifests'],
+          nextCursor: prefix === 'registry/alice/' ? 'more' : null,
+        };
+      },
       listRefs: async () => {
         maximum = Math.max(maximum, ++active);
         calls++;
@@ -66,7 +85,8 @@ describe('package listing', () => {
     const options = {
       owner: 'alice',
       limit: 20,
-      listDirectory: async () => [] as string[],
+      listDirectoryPage: async () => ({ entries: [] as string[], nextCursor: null }),
+      hasPrefix: async () => false,
       listRefs: async () => [] as string[],
     };
     for (const after of ['../bob', '/app', 'app/../../bob']) {
@@ -75,7 +95,7 @@ describe('package listing', () => {
     await expect(
       listPackagePage({
         ...options,
-        listDirectory: async () => {
+        listDirectoryPage: async () => {
           throw new Error('offline');
         },
       }),
