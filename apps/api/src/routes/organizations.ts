@@ -1,3 +1,4 @@
+import { publicUserColumns } from '../lib/public-user';
 import { listPage, pageResponse } from '../lib/list-page';
 import { changeOrganizationMember, acceptOrganizationInvitation } from '../lib/org-membership';
 import { Hono } from "hono";
@@ -196,7 +197,7 @@ app.get("/api/organizations/:org/members", async (c) => {
 
   const members = await db
     .select({
-      user: users,
+      user: publicUserColumns,
       role: organizationMembers.role,
       joinedAt: organizationMembers.createdAt,
     })
@@ -446,7 +447,7 @@ app.get("/api/organizations/:org/teams/:team", requireAuth, async (c) => {
 
   const teamMembersList = await db
     .select({
-      user: users,
+      user: publicUserColumns,
       joinedAt: teamMembers.createdAt,
     })
     .from(teamMembers)
